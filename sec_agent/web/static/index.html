@@ -381,8 +381,10 @@ async function doExecute(approve) {
       event("ok", "5 · Output — executed by the proxy", ms, `<pre>${esc(v.executed)}</pre>`);
     } else {
       // The proxy's own audit line says why (blocked, unknown tool, or the tool errored).
-      const why = [...(v.audit || [])].reverse().find(l => l.startsWith("[proxy]")) || "The proxy refused the action.";
-      const msg = approve ? esc(why.replace(/^\[proxy\]\s*/, "")) : "A human denied the action. No tool was called.";
+      // [proxy] in single-process mode; [proxy-service]/[proxy-client] in the two-container deployment.
+      const PROXY_LINE = /^\[proxy(?:-service|-client)?\]\s*/;
+      const why = [...(v.audit || [])].reverse().find(l => PROXY_LINE.test(l)) || "The proxy refused the action.";
+      const msg = approve ? esc(why.replace(PROXY_LINE, "")) : "A human denied the action. No tool was called.";
       stage("output", "bad", "✗ not executed", msg, ms);
       event("bad", "5 · Output — not executed", ms, msg);
     }
