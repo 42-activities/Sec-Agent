@@ -20,6 +20,7 @@ services:
     build: .
     image: sec-agent
     command: sec-proxy
+    restart: unless-stopped
     environment:
       - PROXY_AUTH_TOKEN=${PROXY_AUTH_TOKEN:?set PROXY_AUTH_TOKEN in .env}
       # Intentionally NO AWS_BEARER_TOKEN_BEDROCK here — the proxy must not reach a model.
@@ -32,6 +33,7 @@ services:
     build: .
     image: sec-agent
     command: sec-web
+    restart: unless-stopped
     depends_on:
       - proxy
     environment:

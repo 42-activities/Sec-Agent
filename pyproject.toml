@@ -30,3 +30,6 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["sec_agent*"]
+
+[tool.setuptools.package-data]
+"sec_agent.web" = ["static/*"]
