@@ -5,7 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Sec-Agent — SOC</title>
 <meta name="description" content="Sec-Agent — an AI security controller that lets a compromised LLM agent propose actions but never execute unauthorized ones." />
-<meta name="theme-color" content="#0f1117" />
+<meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)" />
+<meta name="theme-color" content="#F5F6FA" media="(prefers-color-scheme: light)" />
+<script src="/static/theme.js"></script>
 <link rel="icon" href="/static/logo.svg" type="image/svg+xml" />
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="Sec-Agent" />
@@ -16,14 +18,6 @@
 <link rel="stylesheet" href="/static/brand.css" />
 
 <style>
-  :root {
-    --bg: #0f1117; --panel: #171a23; --panel-2: #0e1016; --border: #272b36; --text: #e6e8ee;
-    --muted: #9aa3b2; --accent: #6ea8fe; --sec: #b48cff;
-    /* Status palette (fixed, validated for the dark surface) — always paired with icon + label. */
-    --good: #3FC98B; --warning: #F5B74E; --critical: #F0556F;
-    --series: #3987e5;  /* single-series bars */
-    --grid: #232733;
-  }
   * { box-sizing: border-box; }
   body { margin: 0; font: 15px/1.5 var(--sans); background: var(--bg); color: var(--text); }
   header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -42,7 +36,7 @@
   .seg button { background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); padding: 6px 12px; font: inherit; font-size: 13px; cursor: pointer; }
   .seg button:first-child { border-radius: 7px 0 0 7px; } .seg button:last-child { border-radius: 0 7px 7px 0; }
   .seg button + button { border-left: 0; }
-  .seg button.on { color: var(--text); background: #222838; }
+  .seg button.on { color: var(--text); background: var(--raised-2); }
   .live { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
   .live i { width: 7px; height: 7px; border-radius: 50%; background: var(--good); display: inline-block; }
 
@@ -55,7 +49,7 @@
   .kpi .l { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
   .kpi .v { font-size: 28px; font-weight: 700; line-height: 1.2; margin-top: 2px; font-variant-numeric: tabular-nums; }
   .kpi .s { font-size: 12px; color: var(--muted); }
-  .ico { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; font-size: 10px; font-weight: 800; color: #0b0d12; }
+  .ico { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; font-size: 10px; font-weight: 800; color: var(--on-status); }
 
   .grid4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
   @media (max-width: 1100px) { .grid4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -73,20 +67,20 @@
   .hbar .fill { position: absolute; inset: 0 auto 0 0; background: var(--series); border-radius: 0 4px 4px 0; min-width: 2px; }
   .hbar .num { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
 
-  #tip { position: fixed; pointer-events: none; background: #0b0d12; border: 1px solid var(--border); border-radius: 7px;
+  #tip { position: fixed; pointer-events: none; background: var(--sunken); border: 1px solid var(--border); border-radius: 7px;
          padding: 7px 10px; font-size: 12.5px; color: var(--text); z-index: 10; display: none; min-width: 120px; }
   #tip b { display: block; margin-bottom: 3px; }
 
   table { border-collapse: collapse; width: 100%; font-size: 13px; }
   th, td { text-align: left; padding: 8px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
   th { color: var(--muted); font-weight: 500; font-size: 12px; white-space: nowrap; }
-  tbody tr { cursor: pointer; } tbody tr:hover { background: #1c202b; }
+  tbody tr { cursor: pointer; } tbody tr:hover { background: var(--hover); }
   .tblwrap { overflow-x: auto; }
   .pill { display: inline-flex; gap: 5px; align-items: center; padding: 1px 9px; border-radius: 999px; font-weight: 700; font-size: 11px; letter-spacing: .04em; white-space: nowrap; }
-  .p-DENY { color: var(--critical); border: 1px solid var(--critical); background: rgba(240,85,111,.12); }
-  .p-APPROVAL { color: var(--warning); border: 1px solid var(--warning); background: rgba(245,183,78,.10); }
-  .p-ALLOW { color: var(--good); border: 1px solid var(--good); background: rgba(63,201,139,.12); }
-  .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 5px; background: #2a2f3a; color: var(--muted); margin: 1px 3px 1px 0; }
+  .p-DENY { color: var(--critical); border: 1px solid var(--critical); background: color-mix(in srgb, var(--deny) 12%, transparent); }
+  .p-APPROVAL { color: var(--warning); border: 1px solid var(--warning); background: color-mix(in srgb, var(--approval) 10%, transparent); }
+  .p-ALLOW { color: var(--good); border: 1px solid var(--good); background: color-mix(in srgb, var(--allow) 12%, transparent); }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 5px; background: var(--raised); color: var(--muted); margin: 1px 3px 1px 0; }
   code { font-family: var(--mono); font-size: 12px; color: var(--text); word-break: break-word; }
 
   #detail { border-left: 3px solid var(--accent); }
@@ -97,7 +91,7 @@
   .ck { margin-top: 4px; font-size: 12.5px; } .ck td { padding: 4px 6px; }
   .ck-i { width: 22px; text-align: center; font-weight: 700; } .ck-id { width: 42px; color: var(--muted); font-family: var(--mono); }
   .ck-pass { color: var(--good); } .ck-flag { color: var(--warning); } .ck-fail { color: var(--critical); } .ck-na, .ck-not_checked { color: var(--muted); }
-  .close { background: #2a2f3a; color: var(--text); border: 0; border-radius: 7px; padding: 6px 12px; font: inherit; cursor: pointer; }
+  .close { background: var(--raised); color: var(--text); border: 0; border-radius: 7px; padding: 6px 12px; font: inherit; cursor: pointer; }
 </style>
 </head>
 <body>

@@ -5,7 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Sec-Agent — Security Controller</title>
 <meta name="description" content="Sec-Agent — an AI security controller that lets a compromised LLM agent propose actions but never execute unauthorized ones." />
-<meta name="theme-color" content="#0f1117" />
+<meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)" />
+<meta name="theme-color" content="#F5F6FA" media="(prefers-color-scheme: light)" />
+<script src="/static/theme.js"></script>
 <link rel="icon" href="/static/logo.svg" type="image/svg+xml" />
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="Sec-Agent" />
@@ -16,11 +18,6 @@
 <link rel="stylesheet" href="/static/brand.css" />
 
 <style>
-  :root {
-    --bg: #0f1117; --panel: #171a23; --panel-2: #0e1016; --border: #272b36; --text: #e6e8ee;
-    --muted: #9aa3b2; --accent: #6ea8fe; --sec: #b48cff;
-    --allow: #3FC98B; --approval: #F5B74E; --deny: #F0556F;
-  }
   * { box-sizing: border-box; }
   body { margin: 0; font: 15px/1.5 var(--sans);
          background: var(--bg); color: var(--text); }
@@ -43,11 +40,11 @@
   @media (max-width: 860px) { .grid2 { grid-template-columns: 1fr; } }
   .row { display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
   .row label { margin: 0; }
-  button { background: var(--accent); color: #0b1020; border: 0; border-radius: 7px;
+  button { background: var(--accent); color: var(--on-accent); border: 0; border-radius: 7px;
            padding: 10px 16px; font: inherit; font-weight: 600; cursor: pointer; }
-  button.approve { background: var(--allow); color: #06240f; }
-  button.deny { background: var(--deny); color: #2a0808; }
-  button.ghost { background: #2a2f3a; color: var(--text); font-weight: 500; }
+  button.approve { background: var(--allow); color: var(--on-allow); }
+  button.deny { background: var(--deny); color: var(--on-deny); }
+  button.ghost { background: var(--raised); color: var(--text); font-weight: 500; }
   button:disabled { opacity: .5; cursor: not-allowed; }
   .muted { color: var(--muted); font-size: 13px; }
   .hidden { display: none !important; }
@@ -66,12 +63,12 @@
   .stage .state { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
   .stage .sum { font-size: 12.5px; color: var(--text); word-break: break-word; }
   .stage .time { margin-top: auto; font-size: 11px; color: var(--muted); font-family: var(--mono); }
-  .stage.running { opacity: 1; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(110,168,254,.15); }
-  .stage.running.secstage { border-color: var(--sec); box-shadow: 0 0 0 3px rgba(180,140,255,.15); }
+  .stage.running { opacity: 1; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent); }
+  .stage.running.secstage { border-color: var(--sec); box-shadow: 0 0 0 3px color-mix(in srgb, var(--sec) 15%, transparent); }
   .stage.ok { opacity: 1; border-color: var(--allow); }
   .stage.warn { opacity: 1; border-color: var(--approval); }
-  .stage.bad { opacity: 1; border-color: var(--deny); box-shadow: 0 0 0 3px rgba(240,85,111,.15); }
-  .stage.info { opacity: 1; border-color: #3b4252; }
+  .stage.bad { opacity: 1; border-color: var(--deny); box-shadow: 0 0 0 3px color-mix(in srgb, var(--deny) 15%, transparent); }
+  .stage.info { opacity: 1; border-color: var(--border-strong); }
   .stage.skipped { opacity: .8; border-style: dashed; border-color: var(--approval); }
   .spin { width: 11px; height: 11px; border: 2px solid currentColor; border-right-color: transparent;
           border-radius: 50%; animation: spin .8s linear infinite; display: inline-block; }
@@ -101,12 +98,12 @@
   .zone b { color: var(--sec); font-weight: 600; }
 
   .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-weight: 700; font-size: 11.5px; letter-spacing: .04em; }
-  .ALLOW { background: rgba(63,201,139,.15); color: var(--allow); border: 1px solid var(--allow); }
-  .APPROVAL { background: rgba(245,183,78,.13); color: var(--approval); border: 1px solid var(--approval); }
-  .DENY { background: rgba(240,85,111,.15); color: var(--deny); border: 1px solid var(--deny); }
-  .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 5px; background: #2a2f3a; color: var(--muted); margin: 2px 4px 2px 0; }
+  .ALLOW { background: color-mix(in srgb, var(--allow) 15%, transparent); color: var(--allow); border: 1px solid var(--allow); }
+  .APPROVAL { background: color-mix(in srgb, var(--approval) 13%, transparent); color: var(--approval); border: 1px solid var(--approval); }
+  .DENY { background: color-mix(in srgb, var(--deny) 15%, transparent); color: var(--deny); border: 1px solid var(--deny); }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 5px; background: var(--raised); color: var(--muted); margin: 2px 4px 2px 0; }
   .tag.red { color: var(--deny); } .tag.yellow { color: var(--approval); } .tag.green { color: var(--allow); }
-  .meter { height: 6px; background: #0b0d12; border-radius: 6px; overflow: hidden; margin-top: 3px; }
+  .meter { height: 6px; background: var(--sunken); border-radius: 6px; overflow: hidden; margin-top: 3px; }
   .meter > span { display: block; height: 100%; transition: width .4s; }
 
   /* ---------------- event log ---------------- */
@@ -120,16 +117,16 @@
   .ev .b b { color: var(--text); font-weight: 600; }
   @keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
   .audit { font-family: var(--mono); font-size: 12px; }
-  .audit div { padding: 3px 0; border-bottom: 1px dashed #21252f; color: var(--muted); word-break: break-word; }
+  .audit div { padding: 3px 0; border-bottom: 1px dashed var(--line); color: var(--muted); word-break: break-word; }
   .stage pre { max-height: 170px; font-size: 11.5px; }
   .scenarios { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
   .scenario { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); font-weight: 500;
               text-align: left; padding: 8px 12px; font-size: 13px; }
   .scenario small { display: block; color: var(--muted); font-size: 11.5px; font-weight: 400; }
-  .scenario.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(110,168,254,.2); }
+  .scenario.active { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent); }
   .group { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 10px 0 6px; }
   .approval { margin-top: 16px; border: 1.5px solid var(--approval); border-radius: 10px; padding: 14px 16px;
-              background: rgba(245,183,78,.06); }
+              background: color-mix(in srgb, var(--approval) 6%, transparent); }
   .approval h3 { margin: 0 0 4px; font-size: 15px; color: var(--approval); }
   .approval table { border-collapse: collapse; margin: 10px 0; width: 100%; font-size: 13px; table-layout: fixed; }
   .approval td { padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: top; word-break: break-word; }
@@ -138,11 +135,11 @@
   .jev { margin-top: 6px; font-size: 12px; }
   .jev .lvl { font-weight: 700; font-family: var(--mono); }
   .jev .scale { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; margin-top: 3px; }
-  .jev .scale span { height: 6px; border-radius: 2px; background: #2a2f3a; }
+  .jev .scale span { height: 6px; border-radius: 2px; background: var(--raised); }
   .jev .scale span.on { background: var(--c); }
   .jev small { color: var(--muted); }
   .checks { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12.5px; table-layout: fixed; }
-  .checks td { padding: 4px 6px; border-bottom: 1px solid #21252f; vertical-align: top; word-break: break-word; }
+  .checks td { padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; word-break: break-word; }
   .checks td.i { width: 22px; text-align: center; font-weight: 700; }
   .checks td.id { width: 42px; color: var(--muted); font-family: var(--mono); }
   .checks td.c { width: 30%; color: var(--text); }

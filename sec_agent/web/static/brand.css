@@ -14,3 +14,91 @@
 h1, h2, h3 { font-family: var(--display); letter-spacing: -0.01em; }
 header h1 { display: flex; align-items: center; gap: 10px; }
 header h1 .mark { width: 24px; height: 24px; flex: none; }
+
+/* ---- Color tokens. Dark is the default; light follows the OS unless the toggle forces one.
+   Every status color passes WCAG AA (≥4.5:1) on its panel and on its own pale pill tint. ---- */
+:root {
+  --bg: #0f1117;
+  --panel: #171a23;
+  --panel-2: #0e1016;
+  --border: #272b36;
+  --text: #e6e8ee;
+  --muted: #9aa3b2;
+  --accent: #6ea8fe;
+  --sec: #b48cff;
+  --allow: #3FC98B;
+  --approval: #F5B74E;
+  --deny: #F0556F;
+  --series: #3987e5;
+  --grid: #232733;
+  --raised: #2a2f3a;
+  --raised-2: #222838;
+  --hover: #1c202b;
+  --line: #21252f;
+  --sunken: #0b0d12;
+  --border-strong: #3b4252;
+  --on-accent: #0b1020;
+  --on-allow: #06240f;
+  --on-deny: #2a0808;
+  --on-status: #0b0d12;
+  --good: var(--allow); --warning: var(--approval); --critical: var(--deny);
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+  --bg: #F5F6FA;
+  --panel: #FFFFFF;
+  --panel-2: #EEF0F6;
+  --border: #DDE1EA;
+  --text: #1B1F2A;
+  --muted: #5A6274;
+  --accent: #2160D8;
+  --sec: #7041D9;
+  --allow: #127A50;
+  --approval: #9A5B00;
+  --deny: #C42A4B;
+  --series: #2160D8;
+  --grid: #E6E9F0;
+  --raised: #E9ECF3;
+  --raised-2: #E2E7F3;
+  --hover: #F0F3FA;
+  --line: #E8EBF1;
+  --sunken: #E4E7EE;
+  --border-strong: #C3C9D6;
+  --on-accent: #FFFFFF;
+  --on-allow: #FFFFFF;
+  --on-deny: #FFFFFF;
+  --on-status: #FFFFFF;
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #F5F6FA;
+  --panel: #FFFFFF;
+  --panel-2: #EEF0F6;
+  --border: #DDE1EA;
+  --text: #1B1F2A;
+  --muted: #5A6274;
+  --accent: #2160D8;
+  --sec: #7041D9;
+  --allow: #127A50;
+  --approval: #9A5B00;
+  --deny: #C42A4B;
+  --series: #2160D8;
+  --grid: #E6E9F0;
+  --raised: #E9ECF3;
+  --raised-2: #E2E7F3;
+  --hover: #F0F3FA;
+  --line: #E8EBF1;
+  --sunken: #E4E7EE;
+  --border-strong: #C3C9D6;
+  --on-accent: #FFFFFF;
+  --on-allow: #FFFFFF;
+  --on-deny: #FFFFFF;
+  --on-status: #FFFFFF;
+  color-scheme: light;
+}
+header nav .theme-toggle { margin-left: 16px; padding: 3px 10px; border-radius: 999px; background: transparent;
+  color: var(--muted); border: 1px solid var(--border); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
+header nav .theme-toggle:hover { color: var(--text); border-color: var(--border-strong); }
+@media (max-width: 600px) { header nav .theme-toggle { margin: 0; } }

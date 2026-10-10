@@ -5,7 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Sec-Agent — Policy Rules</title>
 <meta name="description" content="Sec-Agent — an AI security controller that lets a compromised LLM agent propose actions but never execute unauthorized ones." />
-<meta name="theme-color" content="#0f1117" />
+<meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)" />
+<meta name="theme-color" content="#F5F6FA" media="(prefers-color-scheme: light)" />
+<script src="/static/theme.js"></script>
 <link rel="icon" href="/static/logo.svg" type="image/svg+xml" />
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="Sec-Agent" />
@@ -16,11 +18,6 @@
 <link rel="stylesheet" href="/static/brand.css" />
 
 <style>
-  :root {
-    --bg: #0f1117; --panel: #171a23; --panel-2: #0e1016; --border: #272b36; --text: #e6e8ee;
-    --muted: #9aa3b2; --accent: #6ea8fe; --sec: #b48cff;
-    --allow: #3FC98B; --approval: #F5B74E; --deny: #F0556F;
-  }
   * { box-sizing: border-box; }
   body { margin: 0; font: 15px/1.5 var(--sans); background: var(--bg); color: var(--text); }
   header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -35,8 +32,8 @@
   .hidden { display: none !important; }
   .bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .bar .grow { flex: 1; }
-  button { background: var(--accent); color: #0b1020; border: 0; border-radius: 7px; padding: 9px 14px; font: inherit; font-weight: 600; cursor: pointer; }
-  button.ghost { background: #2a2f3a; color: var(--text); font-weight: 500; }
+  button { background: var(--accent); color: var(--on-accent); border: 0; border-radius: 7px; padding: 9px 14px; font: inherit; font-weight: 600; cursor: pointer; }
+  button.ghost { background: var(--raised); color: var(--text); font-weight: 500; }
   button.danger { background: transparent; color: var(--deny); border: 1px solid var(--deny); font-weight: 500; }
   button:disabled { opacity: .5; cursor: not-allowed; }
   input[type=text], input[type=password] { background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
@@ -48,10 +45,10 @@
   .rule h2 { margin: 2px 0 2px; font-size: 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .rule .desc { color: var(--muted); font-size: 13.5px; margin: 0 0 10px; }
   .pill { display: inline-block; padding: 1px 9px; border-radius: 999px; font-weight: 700; font-size: 11px; letter-spacing: .04em; }
-  .LABEL { background: rgba(180,140,255,.13); color: var(--sec); border: 1px solid var(--sec); }
+  .LABEL { background: color-mix(in srgb, var(--sec) 13%, transparent); color: var(--sec); border: 1px solid var(--sec); }
   select { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 7px 10px; font: inherit; }
-  .DENY { background: rgba(240,85,111,.15); color: var(--deny); border: 1px solid var(--deny); }
-  .APPROVAL { background: rgba(245,183,78,.13); color: var(--approval); border: 1px solid var(--approval); }
+  .DENY { background: color-mix(in srgb, var(--deny) 15%, transparent); color: var(--deny); border: 1px solid var(--deny); }
+  .APPROVAL { background: color-mix(in srgb, var(--approval) 13%, transparent); color: var(--approval); border: 1px solid var(--approval); }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .chip { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px;
           font-family: var(--mono); font-size: 12.5px; display: inline-flex; align-items: center; gap: 6px; }
