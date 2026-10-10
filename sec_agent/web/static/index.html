@@ -150,7 +150,7 @@
     <h1>Sec-Agent · Security Controller</h1>
     <p>The agent <b>proposes</b> actions. The controller <b>authorizes</b> them. Only the proxy <b>executes</b>.</p>
   </div>
-  <nav><a href="/" class="on">Controller</a><a href="/rules">Rules</a><a href="/soc">SOC</a></nav>
+  <nav><a href="/" class="on">Controller</a><a href="/rules">Rules</a><a href="/soc">SOC</a><a href="/batch">Batch</a></nav>
 </header>
 
 <main>
@@ -418,7 +418,8 @@ const handlers = {
 // ---------- Jev prompt-injection risk (0/20/40/60/80/100) ----------
 const jevColor = l => l >= 80 ? "var(--deny)" : l >= 40 ? "var(--approval)" : "var(--allow)";
 const SIGNAL_LABEL = { ai_instructions: "instructions to an AI", redirect: "redirects data/money",
-                       secrets: "asks for secrets", pressure: "pressure/urgency" };
+                       secrets: "asks for secrets", pressure: "pressure/urgency",
+                       jailbreak: "jailbreak attempt" };
 function jevCard(i) {
   const j = i.jev;
   if (j.status !== "ok") return `<div class="jev"><small>Jev unavailable — regex only</small></div>`;

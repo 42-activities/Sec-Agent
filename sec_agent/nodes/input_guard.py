@@ -106,13 +106,16 @@ def _scan_text(item: ContextItem) -> dict:
 
 
 def scan_item(item: ContextItem, scan: dict | None = None) -> ContextItem:
-    """Return a copy of ``item`` with taint/risk/instruction flags filled in."""
-    # Trusted first-party content is never tainted by this guard.
-    if item.trust == Trust.TRUSTED:
+    """Return a copy of ``item`` with taint/risk/instruction flags filled in.
+
+    Trusted first-party content is not scanned (``scan`` is None) and stays untainted —
+    unless the caller asked to scan the user's own prompt, in which case findings taint it.
+    """
+    if item.trust == Trust.TRUSTED and scan is None:
         return item.model_copy(update={"taint": Taint.NONE})
     scan = scan or _scan_text(item)
 
-    risk, taint = 0.1, Taint.EXTERNAL
+    risk, taint = (0.0, Taint.NONE) if item.trust == Trust.TRUSTED else (0.1, Taint.EXTERNAL)
     if scan["injection"]:
         risk, taint = max(risk, 0.9), Taint.SUSPICIOUS
     if scan["sensitive"]:
@@ -134,8 +137,9 @@ def _row(id: str, criterion: str, by: str, result: CheckResult, evidence: str) -
     return Check(id=id, stage="input", criterion=criterion, checked_by=by, result=result, evidence=evidence)
 
 
-def _input_checks(items: list[ContextItem], scans: dict, jev_input: dict, jev_on: bool) -> list[Check]:
-    untrusted = [i for i in items if i.trust != Trust.TRUSTED]
+def _input_checks(items: list[ContextItem], scans: dict, jev_input: dict, jev_on: bool,
+                  user_scanned: bool = False) -> list[Check]:
+    untrusted = [i for i in items if i.id in scans]
     checks = [_row("P1", "Source trust", "provenance", R.PASS,
                    "; ".join(f"{i.id}: {i.trust.value} ({i.source_type})" for i in items))]
     if not untrusted:
@@ -146,9 +150,18 @@ def _input_checks(items: list[ContextItem], scans: dict, jev_input: dict, jev_on
             checks.append(_row(pid, name, "-", R.NA, na))
     else:
         jev_ok = {k: v for k, v in jev_input.items() if v.get("status") == "ok"}
+        is_user = {i.id for i in items if i.source_type == "user_message"}
+        # For a user's own prompt, "instructions to an AI" is normal (look for jailbreaks instead)
+        # and asking to send something somewhere is a legitimate request (skip "redirect").
+        user_key = {"ai_instructions": "jailbreak", "redirect": None}
 
         def signal(key: str) -> list[str]:
-            return [f"{iid}: Jev {key} {r['signals'][key]:.0%}" for iid, r in jev_ok.items() if r["signals"][key] >= 0.5]
+            out = []
+            for iid, r in jev_ok.items():
+                k = user_key.get(key, key) if iid in is_user else key
+                if k and r["signals"].get(k, 0) >= 0.5:
+                    out.append(f"{iid}: Jev {k} {r['signals'][k]:.0%}")
+            return out
 
         def regex(kind: str) -> list[str]:
             return [f"{iid}: “{', '.join(s[kind][:3])}”" for iid, s in scans.items() if s[kind]]
@@ -178,19 +191,29 @@ def _input_checks(items: list[ContextItem], scans: dict, jev_input: dict, jev_on
         hidden = [f"{iid}: {'; '.join(s['hidden'])}" for iid, s in scans.items() if s["hidden"]]
         checks.append(_row("P8", "Hidden or obfuscated text", "regex", R.FLAG if hidden else R.PASS,
                            " | ".join(hidden) or "no invisible characters, comments, encoded or look-alike text"))
-    checks.append(_row("P9", "User's own prompt", "-", R.NA,
-                       "the user's request is trusted by design and not scanned for injection"))
+    users = [i for i in items if i.trust == Trust.TRUSTED and i.id in scans]
+    if user_scanned and users:
+        sus = [i for i in users if i.taint == Taint.SUSPICIOUS]
+        checks.append(_row("P9", "User's own prompt", "regex+jev" if jev_input else "regex",
+                           R.FLAG if sus else R.PASS,
+                           (f"{', '.join(i.id for i in sus)} looks like prompt injection (see P2–P8)" if sus
+                            else "user prompt scanned — no injection found")))
+    else:
+        checks.append(_row("P9", "User's own prompt", "-", R.NA,
+                           "the user's request is trusted by design and not scanned for injection"))
     return checks
 
 
 def input_guard_node(state: AgentState) -> AgentState:
     raw = state.get("context_items", [])
-    scans = {i.id: _scan_text(i) for i in raw if i.trust != Trust.TRUSTED}
+    scan_user = bool(state.get("scan_user_prompt"))
+    scans = {i.id: _scan_text(i) for i in raw
+             if i.trust != Trust.TRUSTED or (scan_user and i.source_type == "user_message")}
     items = [scan_item(i, scans.get(i.id)) for i in raw]
     audit = list(state.get("audit", []))
 
     jev_input: dict = {}
-    untrusted = [i for i in items if i.trust != Trust.TRUSTED]
+    untrusted = [i for i in items if i.id in scans]  # everything we scan, incl. a scanned user prompt
     if jev.enabled() and untrusted:
         rules = active()
 
@@ -222,7 +245,9 @@ def input_guard_node(state: AgentState) -> AgentState:
     if not flagged:
         audit.append("[input_guard] no suspicious context detected")
 
-    checks = _input_checks(items, scans, jev_input, jev.enabled())
+    checks = _input_checks(items, scans, jev_input, jev.enabled(), user_scanned=scan_user)
     for c in checks:
         audit.append(f"[check] {c.id} {c.criterion}: {c.result.value} ({c.checked_by}) — {c.evidence}")
-    return {"context_items": items, "audit": audit, "jev_input": jev_input, "input_checks": checks}
+    findings = {iid: {k: s[k] for k in ("injection", "sensitive", "secrecy", "hidden")} for iid, s in scans.items()}
+    return {"context_items": items, "audit": audit, "jev_input": jev_input, "input_checks": checks,
+            "input_findings": findings}

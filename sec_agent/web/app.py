@@ -298,6 +298,41 @@ def rules_page() -> FileResponse:
     return FileResponse(_STATIC / "rules.html")
 
 
+# ------------------------------------ batch --------------------------------------
+
+class BatchRequest(BaseModel):
+    prompts: list[str]
+    mode: str = Field("input", pattern="^(input|full)$")
+
+
+@app.post("/api/batch")
+def batch_run(req: BatchRequest) -> StreamingResponse:
+    from .. import batch
+
+    prompts = [p.strip() for p in req.prompts if p and p.strip()]
+    if not prompts:
+        raise HTTPException(status_code=400, detail="no prompts")
+    limit = batch.MAX_PROMPTS[req.mode]
+    if len(prompts) > limit:
+        raise HTTPException(status_code=400, detail=f"at most {limit} prompts per batch in '{req.mode}' mode")
+    if any(len(p) > batch.MAX_CHARS for p in prompts):
+        raise HTTPException(status_code=400, detail=f"each prompt must be at most {batch.MAX_CHARS} characters")
+
+    def stream():
+        yield json.dumps({"type": "start", "total": len(prompts), "mode": req.mode, "jev": jev.enabled()}) + "\n"
+        for result in batch.run(prompts, req.mode):
+            yield json.dumps({"type": "result", **result}, default=str) + "\n"
+        yield json.dumps({"type": "done"}) + "\n"
+
+    return StreamingResponse(stream(), media_type="application/x-ndjson",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.get("/batch")
+def batch_page() -> FileResponse:
+    return FileResponse(_STATIC / "batch.html")
+
+
 # ------------------------------------- SOC ---------------------------------------
 
 @app.get("/api/soc/summary")

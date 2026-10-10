@@ -4,7 +4,7 @@
 
 A defense-in-depth security layer for autonomous AI agents built with **LangChain / LangGraph** and **Amazon Bedrock**.
 
-**Live demo:** https://sec-agent.naurzalinov.me — controller (live data flow) · [`/rules`](https://sec-agent.naurzalinov.me/rules) (policy rules) · [`/soc`](https://sec-agent.naurzalinov.me/soc) (security operations dashboard).
+**Live demo:** https://sec-agent.naurzalinov.me — controller (live data flow) · [`/rules`](https://sec-agent.naurzalinov.me/rules) (policy rules) · [`/soc`](https://sec-agent.naurzalinov.me/soc) (security operations dashboard) · [`/batch`](https://sec-agent.naurzalinov.me/batch) (screen many prompts at once).
 
 ## What problem are we solving?
 
@@ -579,6 +579,22 @@ and poisoned MCP output are planned.
 
 Every proposed operation receives one of three decisions: `ALLOW`, `APPROVAL`, `DENY` — and every
 decision is recorded for the SOC dashboard.
+
+---
+
+# Batch screening
+
+[`/batch`](https://sec-agent.naurzalinov.me/batch) runs many prompts through the same flow — paste
+them one per line or upload `.txt` / `.csv` / `.jsonl`. Each prompt is treated as the **user's own
+request** (direct prompt injection / jailbreak screening):
+
+- **Input checks** (up to 500, ~0.3 s each): patterns, hidden text and Jev, with the P1–P9 checklist.
+  For user prompts Jev judges *jailbreak attempts* and *requests for secrets* — not "instructions to
+  an AI", which every user prompt is.
+- **Full pipeline** (up to 25, ~8 s each): also the executor and security LLM and the policy engine,
+  giving the full 19-row checklist and a final decision. It stops before execution — nothing runs.
+
+Results stream in live; export as CSV or JSON. Batch runs are not added to the SOC dashboard.
 
 ---
 

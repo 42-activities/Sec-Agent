@@ -123,6 +123,8 @@ class AgentState(TypedDict, total=False):
     final_decision: Optional[Decision]
     jev_input: dict  # context-item id -> Jev prompt-injection risk result
     input_checks: list[Check]  # P1–P9, from the input guard
+    scan_user_prompt: bool     # also scan the user's own request (batch screening / direct injection)
+    input_findings: dict       # item id -> deterministic detector hits (patterns, hidden text)
     checks: list[Check]        # full checklist: input + action (T1–T10), set by the policy node
     execution_result: Optional[str]
     audit: list[str]
