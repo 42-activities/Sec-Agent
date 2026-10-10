@@ -5,6 +5,8 @@ Flow mirrors the architecture's human-in-the-loop:
   POST /analyze  -> runs input_guard -> executor -> security -> policy, STOPS
                     before execution, returns the decision + audit, and stashes
                     the pending state under a session id.
+  POST /analyze/stream -> same as /analyze, but streams one NDJSON event per
+                    graph node as it completes, so the UI can animate the flow live.
   POST /execute  -> runs the execution proxy for that session with the human's
                     approve/deny answer. DENY is never executable.
 
@@ -14,18 +16,21 @@ anything without a final ALLOW (or an APPROVAL the human approves).
 
 from __future__ import annotations
 
+import json
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from ..config import settings
 from ..graph import build_graph
 from ..models import AgentState, ContextItem, Decision, ProposedAction, Trust
+from ..nodes.input_guard import _INJECTION_RE, _SENSITIVE_RE
 from ..proxy import execution_proxy_node
 from ..proxy_client import remote_execute
 
@@ -120,10 +125,9 @@ def _view(session_id: str, state: AgentState) -> DecisionView:
 
 # --------------------------------- endpoints -------------------------------------
 
-@app.post("/analyze", response_model=DecisionView)
-def analyze(req: AnalyzeRequest) -> DecisionView:
+def _prepare(req: AnalyzeRequest):
+    """Build the initial state and the graph for a request (shared by both analyze routes)."""
     state = _build_state(req)
-
     if req.force_tool:
         # Simulated compromised executor: inject the action, skip the executor LLM.
         state["proposed_action"] = ProposedAction(
@@ -134,11 +138,87 @@ def analyze(req: AnalyzeRequest) -> DecisionView:
         graph = build_graph(include_executor=False, execute=False)
     else:
         graph = build_graph(include_executor=True, execute=False)
+    return state, graph
 
+
+def _action_view(action: Optional[ProposedAction]) -> Optional[dict]:
+    if action is None:
+        return None
+    return {"tool": action.tool, "arguments": action.arguments, "reason": action.reason,
+            "source_ids": action.source_ids, "original_goal": action.original_goal}
+
+
+def _findings(text: str) -> list[str]:
+    """Snippets the input guard matched, so the UI can show *why* an item was flagged."""
+    hits = [m.group(0) for r in (_INJECTION_RE, _SENSITIVE_RE) for m in r.finditer(text)]
+    return list(dict.fromkeys(hits))[:8]
+
+
+def _node_data(node: str, state: AgentState) -> dict:
+    """The slice of state a given node produced, in a JSON-friendly shape."""
+    if node == "input_guard":
+        return {"items": [
+            {"id": i.id, "source": i.source, "source_type": i.source_type,
+             "trust": i.trust.value, "taint": i.taint.value, "risk": i.risk,
+             "instruction_detected": i.instruction_detected,
+             "findings": _findings(i.content) if i.trust != Trust.TRUSTED else []}
+            for i in state.get("context_items", [])
+        ]}
+    if node == "executor":
+        return {"proposed_action": _action_view(state.get("proposed_action"))}
+    if node == "security":
+        return {"security": _view("", state).security}
+    if node == "policy":
+        pd, fd = state.get("policy_decision"), state.get("final_decision")
+        return {"policy_decision": pd.value if pd else None,
+                "final_decision": fd.value if fd else None,
+                "reasons": state.get("policy_reasons", [])}
+    return {}
+
+
+@app.post("/analyze", response_model=DecisionView)
+def analyze(req: AnalyzeRequest) -> DecisionView:
+    state, graph = _prepare(req)
     result = graph.invoke(state)
     session_id = uuid.uuid4().hex
     _SESSIONS[session_id] = result
     return _view(session_id, result)
+
+
+@app.post("/analyze/stream")
+def analyze_stream(req: AnalyzeRequest) -> StreamingResponse:
+    state, graph = _prepare(req)
+    session_id = uuid.uuid4().hex
+
+    def line(event: dict) -> str:
+        return json.dumps(event, default=str) + "\n"
+
+    def events():
+        merged: AgentState = dict(state)  # type: ignore[assignment]
+        yield line({"type": "start", "session_id": session_id,
+                    "executor_skipped": bool(req.force_tool),
+                    "injected_action": _action_view(state.get("proposed_action"))})
+        t0 = time.perf_counter()
+        try:
+            for chunk in graph.stream(state, stream_mode="updates"):
+                for node, update in chunk.items():
+                    seen = len(merged.get("audit", []))
+                    merged.update(update or {})
+                    now = time.perf_counter()
+                    yield line({"type": "node", "node": node,
+                                "ms": round((now - t0) * 1000),
+                                "data": _node_data(node, merged),
+                                "audit": merged.get("audit", [])[seen:]})
+                    t0 = now
+        except Exception as exc:  # surface model/credential errors to the UI
+            yield line({"type": "error", "detail": f"{type(exc).__name__}: {exc}"})
+            return
+        _SESSIONS[session_id] = merged
+        yield line({"type": "done", "view": _view(session_id, merged).model_dump()})
+
+    # X-Accel-Buffering: tell nginx not to buffer, so events reach the browser as they happen.
+    return StreamingResponse(events(), media_type="application/x-ndjson",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.post("/execute", response_model=DecisionView)
