@@ -18,7 +18,7 @@
 services:
   proxy:
     build: .
-    image: sec-agent
+    image: ghcr.io/42-activities/sec-agent-app:${IMAGE_TAG:-latest}
     command: sec-proxy
     restart: unless-stopped
     environment:
@@ -31,7 +31,7 @@ services:
 
   controller:
     build: .
-    image: sec-agent
+    image: ghcr.io/42-activities/sec-agent-app:${IMAGE_TAG:-latest}
     command: sec-web
     restart: unless-stopped
     depends_on:

@@ -1,0 +1,250 @@
+name: Build & deploy (reusable)
+
+# Copy of bakyt92/ci-templates docker-deploy.yml: repos outside bakyt92 cannot
+# call that private workflow, so this repo keeps its own.
+
+# Builds the project's images for the server's CPU (arm64), pushes them to
+# ghcr.io, then SSHes into the server and restarts the compose stack on the
+# new images. Nothing is built on the server.
+#
+# Image names: ghcr.io/<owner>/<repo>-<name>:<commit sha> (+ :latest on the
+# default branch). Reference them in the project's compose file as
+#   image: ghcr.io/<owner>/<repo>-<name>:${IMAGE_TAG:-latest}
+#
+# On pull requests the images are built (to catch broken Dockerfiles) but not
+# pushed or deployed.
+
+on:
+  workflow_call:
+    inputs:
+      images:
+        description: 'JSON list of images, e.g. [{"name":"app","context":"."},{"name":"web","context":"frontend","dockerfile":"frontend/Dockerfile"}]'
+        type: string
+        required: true
+      deploy-path:
+        description: Project folder on the server (a git checkout), e.g. ~/poly_bot
+        type: string
+        required: true
+      compose-file:
+        type: string
+        default: docker-compose.yml
+      health-url:
+        description: URL fetched on the server after the restart. Empty = only check container states.
+        type: string
+        default: ''
+      restart-services:
+        description: Space-separated services to restart after every deploy, e.g. an nginx that caches the IPs of the containers it proxies to.
+        type: string
+        default: ''
+      runner:
+        description: ubuntu-24.04-arm builds natively; ubuntu-latest builds arm64 through QEMU (slower).
+        type: string
+        default: ubuntu-24.04-arm
+      platform:
+        type: string
+        default: linux/arm64
+      deploy:
+        description: false = build and push only
+        type: boolean
+        default: true
+    secrets:
+      SSH_HOST:
+        required: true
+      SSH_USER:
+        required: true
+      SSH_PRIVATE_KEY:
+        required: true
+      SSH_KNOWN_HOSTS:
+        description: Output of `ssh-keyscan <host>`. Without it the host key is trusted on first use.
+        required: false
+      ENV_FILE:
+        description: Full contents of the server's .env. Without it the existing .env on the server is kept.
+        required: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include: ${{ fromJSON(inputs.images) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image name
+        id: img
+        env:
+          REPO: ${{ github.repository }}
+          NAME: ${{ matrix.name }}
+        run: echo "ref=ghcr.io/${REPO,,}-${NAME}" >> "$GITHUB_OUTPUT"
+
+      - if: ${{ !contains(inputs.runner, 'arm') }}
+        uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ inputs.platform }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ${{ steps.img.outputs.ref }}:${{ github.sha }}
+            ${{ github.ref_name == github.event.repository.default_branch && format('{0}:latest', steps.img.outputs.ref) || '' }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+  deploy:
+    name: Deploy to server
+    needs: build
+    if: inputs.deploy && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    concurrency:
+      group: deploy-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - name: Set up SSH
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          if [ -n "$SSH_KNOWN_HOSTS" ]; then
+            printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            ssh-keyscan -H "$SSH_HOST" > ~/.ssh/known_hosts 2>/dev/null
+          fi
+
+      - name: Pull new images and restart
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          DEPLOY_PATH: ${{ inputs.deploy-path }}
+          COMPOSE_FILE: ${{ inputs.compose-file }}
+          HEALTH_URL: ${{ inputs.health-url }}
+          RESTART_SERVICES: ${{ inputs.restart-services }}
+        run: |
+          {
+            # Values go over stdin, not the ssh command line, so they never show up in `ps`.
+            for v in GHCR_TOKEN GHCR_USER REPO BRANCH SHA DEPLOY_PATH COMPOSE_FILE HEALTH_URL RESTART_SERVICES; do
+              printf '%s=%q\n' "$v" "${!v}"
+            done
+            printf 'ENV_FILE_B64=%q\n' "$(printf '%s' "$ENV_FILE" | base64 -w0)"
+            cat <<'REMOTE'
+          set -euo pipefail
+          DEPLOY_PATH="${DEPLOY_PATH/#\~/$HOME}"
+          cd "$DEPLOY_PATH"
+          IMAGE_PREFIX="ghcr.io/${REPO,,}-"
+          STATE_FILE="$HOME/.deploy-state/${REPO//\//_}"
+          mkdir -p "$(dirname "$STATE_FILE")"
+
+          # Never overwrite edits made by hand on the server.
+          if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+            echo "::error::Uncommitted changes in $DEPLOY_PATH on the server. Commit or discard them, then re-run."
+            git status --short --untracked-files=no
+            exit 1
+          fi
+
+          PREV_SHA=$(git rev-parse HEAD)
+          PREV_TAG=$(cat "$STATE_FILE" 2>/dev/null || echo latest)
+
+          git fetch -q origin "$BRANCH"
+          git checkout -q -B "$BRANCH" "$SHA"
+          git branch -q --set-upstream-to="origin/$BRANCH" "$BRANCH" 2>/dev/null || true
+
+          if [ -n "$ENV_FILE_B64" ]; then
+            # umask only applies when the file is created; chmod covers an existing .env too.
+            (umask 077; printf '%s' "$ENV_FILE_B64" | base64 -d > .env)
+            chmod 600 .env
+          fi
+
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin >/dev/null
+          trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
+
+          dc() { docker compose -f "$COMPOSE_FILE" "$@"; }
+
+          # Services built by this pipeline (image starts with ghcr.io/<owner>/<repo>-).
+          # Databases and other third-party images are left alone.
+          our_services() {
+            dc config --format json | python3 -c '
+          import json, sys
+          prefix = sys.argv[1]
+          for name, svc in json.load(sys.stdin)["services"].items():
+              if svc.get("image", "").startswith(prefix):
+                  print(name)
+          ' "$IMAGE_PREFIX"
+          }
+
+          up() {
+            export IMAGE_TAG="$1"
+            mapfile -t svcs < <(our_services)
+            # `set -e` does not apply inside functions called from `if`, so fail explicitly.
+            if [ "${#svcs[@]}" -gt 0 ]; then dc pull --quiet "${svcs[@]}" || return 1; fi
+            dc up -d --no-build --remove-orphans || return 1
+            if [ -n "$RESTART_SERVICES" ]; then
+              # shellcheck disable=SC2086 # word splitting intended: a list of service names
+              dc restart $RESTART_SERVICES
+            fi
+          }
+
+          healthy() {
+            for _ in $(seq 1 24); do
+              sleep 5
+              # A container is bad if it is restarting, exited with an error, or unhealthy.
+              bad=$(dc ps -a --format '{{.Service}} {{.State}} {{.ExitCode}} {{.Health}}' \
+                | awk '$2=="restarting" || ($2=="exited" && $3!="0") || $4=="unhealthy" || $2=="dead"')
+              starting=$(dc ps --format '{{.Health}}' | grep -c '^starting$' || true)
+              if [ -n "$bad" ]; then echo "Unhealthy containers:"; echo "$bad"; return 1; fi
+              [ "$starting" -gt 0 ] && continue
+              if [ -z "$HEALTH_URL" ] || curl -fsS -o /dev/null --max-time 5 "$HEALTH_URL"; then
+                return 0
+              fi
+            done
+            echo "Timed out waiting for the stack${HEALTH_URL:+ / $HEALTH_URL} to become healthy"
+            return 1
+          }
+
+          echo "Deploying ${SHA:0:7} (previous: ${PREV_SHA:0:7}, image tag $PREV_TAG)"
+          if up "$SHA" && healthy; then
+            echo "$SHA" > "$STATE_FILE"
+            dc ps
+            # Keep the current and previous image tags for rollback; drop older ones.
+            docker images --format '{{.Repository}}:{{.Tag}}' \
+              | grep "^${IMAGE_PREFIX}" \
+              | grep -v -e ":${SHA}\$" -e ":${PREV_TAG}\$" -e ':latest$' \
+              | xargs -r docker rmi >/dev/null 2>&1 || true
+            docker image prune -f >/dev/null
+            echo "Deployed ${SHA:0:7}"
+          else
+            echo "::error::Deploy failed - rolling back to ${PREV_SHA:0:7}"
+            dc logs --tail 40 || true
+            git checkout -q -B "$BRANCH" "$PREV_SHA"
+            up "$PREV_TAG" || true
+            exit 1
+          fi
+          REMOTE
+          } | ssh -i ~/.ssh/deploy_key -o BatchMode=yes "$SSH_USER@$SSH_HOST" bash -s

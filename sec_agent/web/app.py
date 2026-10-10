@@ -158,6 +158,11 @@ def execute(req: ExecuteRequest) -> DecisionView:
     return _view(req.session_id, merged)
 
 
+@app.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(_STATIC / "index.html")
