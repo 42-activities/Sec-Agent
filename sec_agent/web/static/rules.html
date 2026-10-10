@@ -110,14 +110,12 @@ const RULES = [
     desc: "If any argument of an action contains one of these, it is refused — whatever the LLM says.",
     sub: { key: "output_only_tools", title: "Exempt: output-only tools", placeholder: "tool name",
            desc: "These only show text to the user and touch no resource, so their text is not checked (an answer may quote “~/.ssh/…” when warning you)." } },
-  { key: "known_payees", title: "Payments only to known bank accounts", decision: "DENY", kind: "map",
-    desc: "pay_invoice may only pay a payee listed here, to exactly this IBAN. A document saying “our bank details changed” cannot add to this list." },
   { key: "allowed_email_domains", title: "Email only to company domains", decision: "DENY", kind: "list", placeholder: "e.g. ourco.example",
     desc: "send_email to any other domain is refused as data leaving the company." },
   { key: "allowed_http_hosts", title: "Web requests only to allowed hosts", decision: "DENY", kind: "list", placeholder: "e.g. api.ourco.example",
     desc: "http_request may only reach these hosts and their subdomains; any other URL is refused as data leaving the company." },
   { key: "approval_required_tools", title: "Always needs a human", decision: "APPROVAL", kind: "list", placeholder: "tool name",
-    desc: "High-impact actions (money movement) always wait for a person — even when the request is clean." },
+    desc: "High-impact actions (e.g. deletions, deployments, money movement) always wait for a person — even when the request is clean." },
   { key: "consequential_tools", title: "Needs a human when influenced by untrusted content", decision: "APPROVAL", kind: "list", placeholder: "tool name",
     desc: "If one of these is proposed because of a document, webpage or other untrusted input, a person must approve it." },
   { key: "jev_suspicious_level", title: "Jev: mark input suspicious at risk level", decision: "LABEL", kind: "level",
@@ -136,8 +134,7 @@ function render() {
       <div>
         <h2>${esc(rule.title)} <span class="pill ${rule.decision}">${rule.decision}</span></h2>
         <p class="desc">${esc(rule.desc)}</p>
-        ${rule.kind === "map" ? mapEditor(rule.key, r[rule.key])
-          : rule.kind === "level" ? levelEditor(rule.key, r[rule.key])
+        ${rule.kind === "level" ? levelEditor(rule.key, r[rule.key])
           : listEditor(rule.key, r[rule.key], rule.placeholder)}
         ${rule.extra ? `<div class="sub"><h3>${esc(rule.extra.title)}</h3><p class="desc">${esc(rule.extra.desc)}</p>
           ${signalEditor(rule.extra.key, r[rule.extra.key])}</div>` : ""}
@@ -165,39 +162,16 @@ function signalEditor(key, value) {
     <select class="editonly" data-signal="${key}">${opts.map(v =>
       `<option value="${v}" ${v === value ? "selected" : ""}>≥ ${v}</option>`).join("")}</select>`;
 }
-function mapEditor(key, map) {
-  const rows = Object.entries(map);
-  return `<table><thead><tr><th>Payee</th><th>IBAN on file</th><th class="editonly" style="width:40px"></th></tr></thead><tbody>
-    ${rows.map(([name, iban], i) => `<tr>
-      <td><span class="view">${esc(name)}</span><input class="editonly" type="text" value="${esc(name)}" data-mk="${i}" /></td>
-      <td><span class="view" style="font-family:ui-monospace,monospace">${esc(iban)}</span><input class="editonly" type="text" value="${esc(iban)}" data-mv="${i}" /></td>
-      <td class="editonly"><button class="ghost" data-mdel="${i}" title="Remove">×</button></td></tr>`).join("")}
-    </tbody></table>
-    <div class="add editonly"><button class="ghost" data-madd="1">Add payee</button></div>`;
-}
-
-// Map rows are edited in place; read them back before any re-render or save.
-function syncMap() {
-  if (!document.body.classList.contains("editing")) return;
-  const keys = [...document.querySelectorAll("[data-mk]")].map(e => e.value);
-  const vals = [...document.querySelectorAll("[data-mv]")].map(e => e.value);
-  draft.known_payees = Object.fromEntries(keys.map((k, i) => [k, vals[i]]));
-}
 function viewMode() {
   document.querySelectorAll(".view").forEach(e => e.classList.toggle("hidden", document.body.classList.contains("editing")));
 }
 
 $("rules").addEventListener("click", (e) => {
   const t = e.target.closest("button"); if (!t) return;
-  syncMap();
   if (t.dataset.del) draft[t.dataset.del].splice(+t.dataset.i, 1);
   else if (t.dataset.add) {
     const inp = document.querySelector(`[data-addin="${t.dataset.add}"]`), v = inp.value.trim();
     if (v && !draft[t.dataset.add].includes(v)) draft[t.dataset.add].push(v);
-  } else if (t.dataset.mdel) {
-    const e2 = Object.entries(draft.known_payees); e2.splice(+t.dataset.mdel, 1); draft.known_payees = Object.fromEntries(e2);
-  } else if (t.dataset.madd) {
-    draft.known_payees = { ...draft.known_payees, [""]: "" };
   } else return;
   render(); viewMode();
 });
@@ -235,7 +209,7 @@ $("editBtn").addEventListener("click", () => {
 });
 $("cancelBtn").addEventListener("click", () => { msg(""); setEditing(false); });
 $("saveBtn").addEventListener("click", async () => {
-  syncMap(); $("saveBtn").disabled = true;
+  $("saveBtn").disabled = true;
   try {
     apply(await call("PUT", "/api/rules", draft));
     store.set("secAgentAdmin", $("adminToken").value);

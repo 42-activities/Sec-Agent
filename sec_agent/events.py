@@ -59,8 +59,6 @@ def _short(v: Any, n: int = _TXT) -> str:
 
 # Most specific first: the deterministic rule that fired names the attack best.
 _RULE_TYPES = [
-    ("IBAN does not match", "bank_details_fraud"),
-    ("not in the vendor master data", "bank_details_fraud"),
     ("external data egress", "data_exfiltration"),
     ("denied resource", "credential_access"),
     ("not in the allow-list", "unauthorized_tool"),
@@ -190,7 +188,8 @@ def get(session_id: str) -> Optional[dict]:
 
 ATTACK_LABELS = {
     "prompt_injection": "Prompt injection", "data_exfiltration": "Data exfiltration",
-    "bank_details_fraud": "Bank-details fraud", "credential_access": "Credential access",
+    "credential_access": "Credential access",
+    "bank_details_fraud": "Bank-details fraud",  # only in events recorded before payments were removed
     "unauthorized_tool": "Unauthorized tool",
 }
 

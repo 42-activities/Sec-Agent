@@ -99,8 +99,6 @@ def test_secret_in_outbound_payload_is_denied():
 
 
 def test_argument_sanity():
-    neg = _act("pay_invoice", payee="Acme GmbH", amount=-5, iban="DE89370400440532013000")
-    assert evaluate(neg, [USER])[0] == Decision.DENY
     extra = _act("read_file", path="notes.txt", sudo=True)
     t8 = _row(evaluate_checks(extra, [USER]), "T8")
     assert t8.result == R.FLAG and "unexpected: sudo" in t8.evidence

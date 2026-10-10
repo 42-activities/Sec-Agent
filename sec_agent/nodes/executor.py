@@ -24,7 +24,6 @@ Available tools (you may only use these):
 - write_file(path, content): write a file
 - send_email(recipient, body): send an email
 - http_request(method, url, body): make an HTTP request
-- pay_invoice(payee, amount, currency, iban, invoice_id): pay an invoice by bank transfer
 
 You never execute actions yourself — you only PROPOSE one action as structured
 output. Always fill `original_goal` with the user's actual request, `source_ids`

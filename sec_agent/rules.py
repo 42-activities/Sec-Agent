@@ -2,7 +2,7 @@
 
 The rule *logic* lives in code (nodes/policy.py) and cannot be changed at runtime;
 these are the lists and tables it checks against (allowed tools, denied paths,
-known payees, ...). They are stored as JSON so an admin can edit them from the
+email domains, HTTP hosts, ...). They are stored as JSON so an admin can edit them from the
 web UI without a redeploy.
 
 Ownership: in the two-container deployment the PROXY owns the rules file. The
@@ -32,7 +32,6 @@ class Rules(BaseModel):
     allowed_tools: list[str]
     denied_path_substrings: list[str]
     output_only_tools: list[str]
-    known_payees: dict[str, str]
     allowed_email_domains: list[str]
     # Default lets rule files saved before this field existed still load.
     allowed_http_hosts: list[str] = Field(default_factory=lambda: list(settings.allowed_http_hosts))
@@ -60,16 +59,6 @@ class Rules(BaseModel):
     def _lower_domains(cls, v: list[str]) -> list[str]:
         return list(dict.fromkeys(d.lower().lstrip("@") for d in v))
 
-    @field_validator("known_payees")
-    @classmethod
-    def _clean_payees(cls, v: dict[str, str]) -> dict[str, str]:
-        out = {k.strip(): "".join(str(iban).split()).upper() for k, iban in v.items() if k and k.strip()}
-        if any(not iban for iban in out.values()):
-            raise ValueError("every payee needs an IBAN")
-        if len(out) > _MAX_ITEMS or any(len(k) > _MAX_LEN or len(i) > 34 for k, i in out.items()):
-            raise ValueError("too many payees, or a name/IBAN is too long")
-        return out
-
 
 def defaults() -> Rules:
     """Factory defaults, from config.py (overridable by environment)."""
@@ -77,7 +66,6 @@ def defaults() -> Rules:
         allowed_tools=settings.allowed_tools,
         denied_path_substrings=settings.denied_path_substrings,
         output_only_tools=settings.output_only_tools,
-        known_payees=settings.known_payees,
         allowed_email_domains=settings.allowed_email_domains,
         allowed_http_hosts=settings.allowed_http_hosts,
         approval_required_tools=settings.approval_required_tools,

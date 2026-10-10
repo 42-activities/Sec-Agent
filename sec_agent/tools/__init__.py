@@ -48,13 +48,6 @@ def send_email(recipient: str, body: str = "", **_: Any) -> str:
     return f"[stub] email to {recipient} ({len(body)} bytes) — not actually sent"
 
 
-def pay_invoice(payee: str = "", amount: float = 0, currency: str = "EUR",
-                iban: str = "", invoice_id: str = "", **_: Any) -> str:
-    # Stub: in production, back this with the bank / payments API. Never moves money here.
-    return (f"[stub] payment of {amount} {currency} to {payee} (IBAN {iban}) "
-            f"for invoice {invoice_id} scheduled — no money actually moved")
-
-
 def http_request(method: str = "GET", url: str = "", body: str = "", **_: Any) -> str:
     # Stub: avoid making real network calls from the reference PoC.
     return f"[stub] {method} {url} ({len(body)} bytes) — not actually sent"
@@ -67,7 +60,6 @@ REGISTRY: dict[str, Callable[..., str]] = {
     "write_file": write_file,
     "send_email": send_email,
     "http_request": http_request,
-    "pay_invoice": pay_invoice,
 }
 
 

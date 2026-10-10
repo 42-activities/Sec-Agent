@@ -226,22 +226,28 @@ Example decision:
 
 The Security Agent is not trusted as the sole authority.
 
-Certain restrictions are enforced directly in code. The rules run in this order:
+Certain restrictions are enforced directly in code. The rules are universal — they apply to any
+agent, whatever its domain — and run in this order:
 
 | # | Rule | Decision |
 |---|---|---|
 | 1 | Only allowed tools may be proposed | DENY |
 | 2 | Forbidden resources (`.ssh`, `.aws`, `.env`, credentials, secrets…) in any argument | DENY |
-| 3 | Payments only to the bank account on file for that supplier ("our bank details changed" fraud) | DENY |
-| 4 | Email only to company domains (data egress) | DENY |
-| 5 | Web requests only to allowed hosts (data egress) | DENY |
-| 6 | No credentials (private keys, cloud keys, tokens, passwords) in outbound payloads | DENY |
-| 7 | Sane arguments (expected fields; payments need a positive amount) | DENY / flag |
-| 8 | High-impact actions (payments) always need a human | APPROVAL |
-| 9 | Consequential actions influenced by untrusted content need a human — "influenced" means *any* untrusted content was in context, not only what the agent chose to cite | APPROVAL |
+| 3 | Email only to company domains (data egress) | DENY |
+| 4 | Web requests only to allowed hosts (data egress) | DENY |
+| 5 | No credentials (private keys, cloud keys, tokens, passwords) in outbound payloads | DENY |
+| 6 | Sane arguments (expected fields only) | flag |
+| 7 | High-impact tools you list (e.g. deletions, deployments) always need a human | APPROVAL |
+| 8 | Consequential actions influenced by untrusted content need a human — "influenced" means *any* untrusted content was in context, not only what the agent chose to cite | APPROVAL |
 
-The rule *logic* is code; the lists it checks (tools, paths, known payees, domains…) are editable
+The rule *logic* is code; the lists it checks (tools, paths, domains, hosts…) are editable
 on the [`/rules`](https://sec-agent.naurzalinov.me/rules) page behind an admin password.
+
+**How the rules reach every decision.** The proxy container owns the rule file. The controller
+reads it from the proxy (`GET /rules`) each time it evaluates an action, so an edit on `/rules`
+applies to the very next request — no redeploy. Before executing, the proxy re-checks the action
+against the same rules itself, so a compromised controller can't sneak a denied action through.
+`tests/test_rules_flow.py` runs both apps wired together and proves each step.
 
 Therefore:
 
@@ -267,7 +273,7 @@ under each Sec-Agent step, in the SOC incident view, and in the JSON event log.
 |---|---|
 | P1 Source trust | T1 Tool allowed |
 | P2 Instructions aimed at an AI | T2 No forbidden resources |
-| P3 Redirects data or money | T3 Destination allowed (payee IBAN, email domain, HTTP host) |
+| P3 Redirects data or money | T3 Destination allowed (email domain, HTTP host) |
 | P4 Requests for secrets | T4 Goal alignment (security LLM) |
 | P5 Pressure / urgency (informs only) | T5 Untrusted influence (never trusts self-reported sources) |
 | P6 Secrecy ("don't tell the user") | T6 Impact & reversibility → human approval |
@@ -465,8 +471,8 @@ External destination + confidential document
 
 This keeps humans responsible for consequential or ambiguous decisions.
 
-In the demo every payment waits for a person, even a clean one, and the approval card shows the
-exact payee, amount and IBAN plus every reason approval was needed. A human can approve or reject
+In the demo the approval card shows the exact action and arguments (recipient, body…) plus every
+reason approval was needed. A human can approve or reject
 an APPROVAL; nobody can override a DENY.
 
 ---
@@ -551,24 +557,22 @@ The architecture combines:
 
 # What the PoC implements
 
-Tools (all behind the execution proxy; email, HTTP and payments are stubs, file tools are sandboxed):
+Tools (all behind the execution proxy; email and HTTP are stubs, file tools are sandboxed):
 
 ```text
-respond_to_user()   read_document()   read_file()   write_file()
-send_email()        http_request()    pay_invoice()
+respond_to_user()   read_document()   read_file()
+write_file()        send_email()      http_request()
 ```
 
 Demo scenarios, one click each on the controller page:
 
 | Domain | Scenario | What happens |
 |---|---|---|
-| Finance | Clean invoice | Answer delivered (ALLOW) |
-| Finance | Pay invoice | Payment waits for a human (APPROVAL) |
-| Finance | Bank-details fraud | Payment to an attacker's IBAN — DENY (rule 3) |
-| Finance | Hijacked agent | The **live** LLM is fooled into emailing data out — DENY (rule 4 + security LLM) |
-| Finance | Credential theft | Compromised agent reads an SSH key — DENY (rule 2) |
+| Invoices | Clean invoice | Answer delivered (ALLOW) |
+| Invoices | Hijacked agent | The **live** LLM is fooled into emailing data out — DENY (rule 3 + security LLM) |
+| Invoices | Credential theft | Compromised agent reads an SSH key — DENY (rule 2) |
 | Recruiting | Screen a CV | Summary email waits for a human (APPROVAL) |
-| Recruiting | Candidate-data theft | Poisoned CV reroutes the email — DENY (rule 4) |
+| Recruiting | Candidate-data theft | Poisoned CV reroutes the email — DENY (rule 3) |
 
 Attack sources covered so far: poisoned documents (invoices, CVs). Poisoned webpages / RAG results
 and poisoned MCP output are planned.

@@ -55,9 +55,6 @@ def _touches_denied_path(action: ProposedAction, rules: Rules) -> list[str]:
     return [needle for needle in rules.denied_path_substrings if needle in blob]
 
 
-def _norm_iban(value: object) -> str:
-    return "".join(str(value).split()).upper()
-
 
 def _host(url: str) -> str:
     parsed = urlparse(url if "://" in url else f"http://{url}")
@@ -122,20 +119,8 @@ def evaluate_checks(action: ProposedAction, items: list[ContextItem], rules: Rul
                           else "no argument references a forbidden resource",
                           Decision.DENY if denied else None))
 
-    # T3 — destination allowed: payee bank account, email domain, HTTP host.
-    if tool == "pay_invoice":
-        payee = str(args.get("payee", "")).strip()
-        on_file = _norm_iban(rules.known_payees.get(payee, ""))
-        if not on_file:
-            out.append(_check("T3", "Destination allowed", R.FAIL,
-                              f"payee '{payee}' is not in the vendor master data", Decision.DENY))
-        elif _norm_iban(args.get("iban", "")) != on_file:
-            out.append(_check("T3", "Destination allowed", R.FAIL,
-                              f"IBAN does not match the account on file for '{payee}' "
-                              f"-> possible bank-details fraud; verify out of band", Decision.DENY))
-        else:
-            out.append(_check("T3", "Destination allowed", R.PASS, f"IBAN matches the account on file for '{payee}'"))
-    elif tool == "send_email":
+    # T3 — destination allowed: email domain, HTTP host.
+    if tool == "send_email":
         recipient = str(args.get("recipient", "")).strip().lower()
         domain = recipient.rsplit("@", 1)[-1] if "@" in recipient else ""
         if domain in rules.allowed_email_domains:
@@ -185,7 +170,7 @@ def evaluate_checks(action: ProposedAction, items: list[ContextItem], rules: Rul
                           else f"no credentials found in {'/'.join(fields)}",
                           Decision.DENY if hits else None))
 
-    # T8 — argument sanity: expected fields only; payments need a positive amount.
+    # T8 — argument sanity: expected fields only.
     spec = _expected_args(tool)
     if spec is None:
         out.append(_check("T8", "Arguments sane", R.NA, "unknown tool"))
@@ -194,16 +179,8 @@ def evaluate_checks(action: ProposedAction, items: list[ContextItem], rules: Rul
         unexpected, missing = sorted(set(args) - named), sorted(required - set(args))
         problems = ([f"unexpected: {', '.join(unexpected)}"] if unexpected else []) + \
                    ([f"missing: {', '.join(missing)}"] if missing else [])
-        if tool == "pay_invoice":
-            try:
-                if float(args.get("amount", 0)) <= 0:
-                    problems.append("amount must be positive")
-            except (TypeError, ValueError):
-                problems.append("amount is not a number")
-        bad_amount = any(p.startswith("amount") for p in problems)
-        out.append(_check("T8", "Arguments sane", R.FAIL if bad_amount else R.FLAG if problems else R.PASS,
-                          "; ".join(problems) or "arguments match the tool's signature",
-                          Decision.DENY if bad_amount else None))
+        out.append(_check("T8", "Arguments sane", R.FLAG if problems else R.PASS,
+                          "; ".join(problems) or "arguments match the tool's signature"))
 
     # T9 — rate & volume. Honest about what isn't enforced yet.
     out.append(_check("T9", "Rate & volume", R.NOT_CHECKED, "no per-session rate limit is enforced yet"))

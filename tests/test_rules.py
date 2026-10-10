@@ -30,9 +30,9 @@ def test_edited_rules_change_the_decision():
 def test_rules_are_normalized():
     r = rules_store.Rules(**{**rules_store.defaults().model_dump(),
                              "allowed_email_domains": [" @OurCo.Example ", "ourco.example", ""],
-                             "known_payees": {" Acme GmbH ": "de89 3704 0044 0532 0130 00"}})
+                             "allowed_http_hosts": ["API.OurCo.Example", "api.ourco.example"]})
     assert r.allowed_email_domains == ["ourco.example"]
-    assert r.known_payees == {"Acme GmbH": "DE89370400440532013000"}
+    assert r.allowed_http_hosts == ["api.ourco.example"]
 
 
 def test_web_editing_requires_admin_password(monkeypatch):

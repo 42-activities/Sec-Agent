@@ -155,7 +155,7 @@ const store = { get(k) { try { return localStorage.getItem(k); } catch { return 
                 set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
 const DETECTOR = { regex: "Pattern match", jev: "Jev classifier", security_llm: "Security LLM", policy: "Policy rule" };
 const ATTACK = { prompt_injection: "Prompt injection", data_exfiltration: "Data exfiltration",
-                 bank_details_fraud: "Bank-details fraud", credential_access: "Credential access", unauthorized_tool: "Unauthorized tool" };
+                 credential_access: "Credential access", bank_details_fraud: "Bank-details fraud", unauthorized_tool: "Unauthorized tool" };
 const ICON = { DENY: "✗", APPROVAL: "!", ALLOW: "✓" };
 const COLOR = { DENY: "var(--critical)", APPROVAL: "var(--warning)", ALLOW: "var(--good)" };
 
