@@ -56,8 +56,10 @@ def explain(injection: bool, found: dict, jev: dict, tool: str | None, final: st
         parts.append("matched " + ", ".join(f"“{m}”" for m in matched[:2]))
     if found.get("hidden"):
         parts.append("hidden " + found["hidden"][0])
+    if found.get("weak"):
+        parts.append("mentions " + ", ".join(f"“{w}”" for w in found["weak"][:2]) + " but nothing else suspicious")
     head = "Prompt injection" if injection else "No injection found"
-    if not injection and not matched and not found.get("hidden"):
+    if not injection and not matched and not found.get("hidden") and not found.get("weak"):
         parts.append("no injection patterns or hidden text")
     if tool:
         parts.append(f"agent proposed {tool} → {final}")

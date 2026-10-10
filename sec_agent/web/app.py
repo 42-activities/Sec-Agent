@@ -33,7 +33,7 @@ from .. import events as event_log
 from .. import jev
 from ..graph import build_graph
 from ..models import AgentState, ContextItem, Decision, ProposedAction, Trust
-from ..nodes.input_guard import _INJECTION_RE, _SENSITIVE_RE
+from ..nodes.input_guard import _INJECTION_RE, _SENSITIVE_RE, _WEAK_SENSITIVE_RE
 from ..proxy import execution_proxy_node
 from ..proxy_client import remote_execute
 from ..tools import REGISTRY
@@ -154,7 +154,7 @@ def _action_view(action: Optional[ProposedAction]) -> Optional[dict]:
 
 def _findings(text: str) -> list[str]:
     """Snippets the input guard matched, so the UI can show *why* an item was flagged."""
-    hits = [m.group(0) for r in (_INJECTION_RE, _SENSITIVE_RE) for m in r.finditer(text)]
+    hits = [m.group(0) for r in (_INJECTION_RE, _SENSITIVE_RE, _WEAK_SENSITIVE_RE) for m in r.finditer(text)]
     return list(dict.fromkeys(hits))[:8]
 
 

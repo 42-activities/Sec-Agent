@@ -42,12 +42,18 @@ _INJECTION_PATTERNS = [
     r"exfiltrat|send (it|them|the contents?).{0,30}(to|server|http)",
 ]
 
-# Hints that untrusted content is steering toward sensitive resources.
-_SENSITIVE_HINTS = [r"\.ssh", r"id_ed25519", r"id_rsa", r"\.aws", r"\.env",
-                    r"credential", r"secret", r"private key", r"password"]
+# Concrete sensitive targets — enough on their own to mark content suspicious.
+_SENSITIVE_HINTS = [r"\.ssh", r"id_ed25519", r"id_rsa", r"\.aws", r"\.env", r"private key", r"/etc/shadow"]
+# Everyday words ("a secret recipe", "memories, like passwords") — they only count when the
+# same text also has an injection phrase, hidden text, or a Jev attack signal ≥ 0.5.
+_WEAK_SENSITIVE_HINTS = [r"credential", r"secret", r"password"]
 
 _INJECTION_RE = re.compile("|".join(_INJECTION_PATTERNS), re.IGNORECASE)
 _SENSITIVE_RE = re.compile("|".join(_SENSITIVE_HINTS), re.IGNORECASE)
+_WEAK_SENSITIVE_RE = re.compile("|".join(_WEAK_SENSITIVE_HINTS), re.IGNORECASE)
+# Jev signals that corroborate a weak word (by role: a user prompt always "instructs the AI").
+_CORROBORATING = {"user_message": ("jailbreak", "secrets"),
+                  None: ("ai_instructions", "redirect", "secrets", "jailbreak")}
 _SECRECY_RE = re.compile(r"do not (tell|inform|reveal|mention)|don't (tell|mention)|keep (this|it) (secret|hidden)",
                          re.IGNORECASE)
 
@@ -99,6 +105,7 @@ def _scan_text(item: ContextItem) -> dict:
     return {
         "injection": list(dict.fromkeys(m.group(0) for m in _INJECTION_RE.finditer(text))),
         "sensitive": list(dict.fromkeys(m.group(0) for m in _SENSITIVE_RE.finditer(text))),
+        "weak": list(dict.fromkeys(m.group(0).lower() for m in _WEAK_SENSITIVE_RE.finditer(text))),
         "secrecy": list(dict.fromkeys(m.group(0) for m in _SECRECY_RE.finditer(text))),
         "hidden": hidden,
         "revealed": revealed,
@@ -119,6 +126,11 @@ def scan_item(item: ContextItem, scan: dict | None = None) -> ContextItem:
     if scan["injection"]:
         risk, taint = max(risk, 0.9), Taint.SUSPICIOUS
     if scan["sensitive"]:
+        risk, taint = max(risk, 0.7), Taint.SUSPICIOUS
+    if scan["weak"] and (scan["injection"] or scan["hidden"]):
+        # A weak word counts only when the text is already doing something injection-like.
+        scan["sensitive"] = [*scan["sensitive"], *scan["weak"]]
+        scan["weak"] = []
         risk, taint = max(risk, 0.7), Taint.SUSPICIOUS
     if scan["hidden"]:
         # Content deliberately hidden from human readers is suspicious by itself.
@@ -174,7 +186,14 @@ def _input_checks(items: list[ContextItem], scans: dict, jev_input: dict, jev_on
             if not kind and not jev_ok:
                 checks.append(_row(pid, name, "jev", R.NOT_CHECKED, "only Jev checks this; Jev is off/unavailable"))
             else:
-                checks.append(_row(pid, name, by, R.FLAG if hits else R.PASS, "; ".join(hits) or "nothing found"))
+                note = ""
+                if pid == "P4":
+                    weak = [f"{iid}: “{', '.join(s['weak'][:3])}”" for iid, s in scans.items() if s["weak"]]
+                    if weak:
+                        note = (" | " if hits else "") + "mentions " + "; ".join(weak) + \
+                               " — a common word, not enough on its own"
+                checks.append(_row(pid, name, by, R.FLAG if hits else R.PASS,
+                                   ("; ".join(hits) + note) if hits else (note.lstrip(" |") or "nothing found")))
         hits = signal("pressure")
         checks.append(_row("P5", "Pressure / urgency", "jev", R.FLAG if hits else R.PASS,
                            ("; ".join(hits) + " (informs only, never decides)") if hits else "nothing found")
@@ -227,6 +246,15 @@ def input_guard_node(state: AgentState) -> AgentState:
             results = list(pool.map(score, untrusted))
         jev_input = {i.id: r for i, r in zip(untrusted, results)}
         items = [_apply_jev(i, jev_input[i.id]) if i.id in jev_input else i for i in items]
+        # A weak word ("secret", "password") counts once Jev also sees an attack signal ≥ 0.5.
+        for n, i in enumerate(items):
+            s, r = scans.get(i.id), jev_input.get(i.id) or {}
+            if s and s["weak"] and r.get("status") == "ok":
+                keys = _CORROBORATING.get(i.source_type, _CORROBORATING[None])
+                hits = [k for k in keys if r["signals"].get(k, 0) >= 0.5]
+                if hits:
+                    s["sensitive"], s["weak"] = [*s["sensitive"], *s["weak"]], []
+                    items[n] = i.model_copy(update={"taint": Taint.SUSPICIOUS, "risk": max(i.risk, 0.7)})
         for item_id, r in jev_input.items():
             if r["status"] == "ok":
                 audit.append(f"[jev] {item_id}: prompt-injection risk {r['level']}/100 "
@@ -248,6 +276,6 @@ def input_guard_node(state: AgentState) -> AgentState:
     checks = _input_checks(items, scans, jev_input, jev.enabled(), user_scanned=scan_user)
     for c in checks:
         audit.append(f"[check] {c.id} {c.criterion}: {c.result.value} ({c.checked_by}) — {c.evidence}")
-    findings = {iid: {k: s[k] for k in ("injection", "sensitive", "secrecy", "hidden")} for iid, s in scans.items()}
+    findings = {iid: {k: s[k] for k in ("injection", "sensitive", "weak", "secrecy", "hidden")} for iid, s in scans.items()}
     return {"context_items": items, "audit": audit, "jev_input": jev_input, "input_checks": checks,
             "input_findings": findings}
