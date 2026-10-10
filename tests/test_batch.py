@@ -69,3 +69,24 @@ def test_each_result_has_prediction_and_explanation():
     assert res[0]["explanation"].startswith("No injection found")
     assert res[1]["explanation"].startswith("Prompt injection") and "ignore all previous instructions" in res[1]["explanation"].lower()
     assert "hidden base64 text" in res[2]["explanation"]
+
+
+def test_per_method_predictions_and_llm_comparison(monkeypatch):
+    calls = []
+
+    def fake_llm(prompt):
+        calls.append(prompt)
+        return {"status": "ok", "injection": int("ignore" in prompt.lower()), "confidence": 0.9, "reason": "stub", "ms": 1}
+
+    monkeypatch.setattr(batch, "llm_classify", fake_llm)
+    c = TestClient(app)
+    with c.stream("POST", "/api/batch", json={"prompts": PROMPTS, "mode": "input", "llm": True}) as r:
+        res = {x["index"]: x for x in map(json.loads, r.iter_lines()) if x.get("type") == "result"}
+    assert len(calls) == 4
+    assert res[1]["by_method"] == {"pattern": 1, "hidden": 0, "jev": None, "llm": 1}   # Jev off in tests
+    assert res[2]["by_method"]["hidden"] == 1
+    assert res[0]["by_method"]["llm"] == 0 and res[0]["llm"]["reason"] == "stub"
+    # Without the option the LLM is never called.
+    calls.clear()
+    _stream(c, PROMPTS[:1], "input")
+    assert calls == []

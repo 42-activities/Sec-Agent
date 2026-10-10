@@ -303,6 +303,7 @@ def rules_page() -> FileResponse:
 class BatchRequest(BaseModel):
     prompts: list[str]
     mode: str = Field("input", pattern="^(input|full)$")
+    llm: bool = False  # also ask the LLM to classify each prompt (for comparison)
 
 
 @app.post("/api/batch")
@@ -312,15 +313,17 @@ def batch_run(req: BatchRequest) -> StreamingResponse:
     prompts = [p.strip() for p in req.prompts if p and p.strip()]
     if not prompts:
         raise HTTPException(status_code=400, detail="no prompts")
-    limit = batch.MAX_PROMPTS[req.mode]
+    limit = min(batch.MAX_PROMPTS[req.mode], batch.MAX_LLM_PROMPTS) if req.llm else batch.MAX_PROMPTS[req.mode]
     if len(prompts) > limit:
-        raise HTTPException(status_code=400, detail=f"at most {limit} prompts per batch in '{req.mode}' mode")
+        raise HTTPException(status_code=400, detail=f"at most {limit} prompts per batch in '{req.mode}' mode"
+                                                    + (" with the LLM classifier" if req.llm else ""))
     if any(len(p) > batch.MAX_CHARS for p in prompts):
         raise HTTPException(status_code=400, detail=f"each prompt must be at most {batch.MAX_CHARS} characters")
 
     def stream():
-        yield json.dumps({"type": "start", "total": len(prompts), "mode": req.mode, "jev": jev.enabled()}) + "\n"
-        for result in batch.run(prompts, req.mode):
+        yield json.dumps({"type": "start", "total": len(prompts), "mode": req.mode, "jev": jev.enabled(),
+                          "llm": req.llm}) + "\n"
+        for result in batch.run(prompts, req.mode, req.llm):
             yield json.dumps({"type": "result", **result}, default=str) + "\n"
         yield json.dumps({"type": "done"}) + "\n"
 

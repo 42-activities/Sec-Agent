@@ -599,7 +599,15 @@ Results stream in live; export as CSV or JSON. Batch runs are not added to the S
 **Accuracy evaluation.** Upload a CSV with the prompt in column 1 and a label in column 2
 (`1` = prompt injection, `0` = clean; header optional; comma-, semicolon- or tab-separated, Excel
 UTF-8 files fine; `1.0`/`0.0`, `true/false`, `yes/no` accepted — or paste `prompt,1` lines).
-Rows without a valid label are listed as not scored instead of hiding the comparison. Sec-Agent adds a predicted `1`/`0` and a
+Rows without a valid label are listed as not scored instead of hiding the comparison.
+
+**Per-method comparison.** The evaluation also scores each detection method on its own against
+your labels — pattern matching, hidden text, Jev, the Sec-Agent verdict (any of the three) and,
+if you tick *Also classify with the LLM*, an independent yes/no from Claude Haiku plus
+"Sec-Agent + LLM". Each row shows TP / FP / TN / FN, accuracy, precision, recall, F1 and
+false-positive rate; the best F1 is starred. The export adds `pred_pattern`, `pred_hidden`,
+`pred_jev`, `pred_llm` (+ reason) per prompt and the per-method table at the end. The LLM is only
+compared — it does not change the Sec-Agent verdict. Sec-Agent adds a predicted `1`/`0` and a
 one-line explanation per row, marks each row TP / FP / TN / FN, and reports a confusion matrix,
 accuracy, precision, recall, F1 and false-positive rate. The exported CSV keeps your two columns
 first, then `predicted` and `explanation`, then the outcome and details, with the summary as the

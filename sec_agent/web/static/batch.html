@@ -72,6 +72,14 @@
   td.ex { min-width: 260px; max-width: 420px; color: var(--muted); font-size: 12.5px; }
   .hint { font-size: 12.5px; color: var(--muted); margin: 8px 0 0; }
   .hint code { color: var(--text); }
+  .mt { width: 100%; font-size: 13px; margin-top: 14px; }
+  .mt td, .mt th { padding: 7px 8px; text-align: right; font-variant-numeric: tabular-nums; }
+  .mt td:first-child, .mt th:first-child { text-align: left; }
+  .mt tr.best td { color: var(--text); font-weight: 700; }
+  .mt tr.off td { color: var(--muted); }
+  .mt td.fp, .mt td.fn { color: var(--critical); } .mt td.tp, .mt td.tn { color: var(--good); }
+  .opt { display: inline-flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
+  .opt input { width: 16px; height: 16px; }
 </style>
 </head>
 <body>
@@ -101,6 +109,7 @@
         <button data-m="input" class="on" type="button">Input checks<small>patterns · hidden text · Jev — ~0.3 s each, up to 1000</small></button>
         <button data-m="full" type="button">Full pipeline<small>+ executor & security LLM, policy — ~8 s each, up to 25</small></button>
       </div>
+      <label class="opt"><input type="checkbox" id="useLlm" /> Also classify each prompt with the LLM<br>(Claude Haiku on Bedrock — ~1–2 s each, for comparison)</label>
       <span class="grow"></span>
       <span class="muted" id="count">0 prompts</span>
       <button id="runBtn" type="button">Run batch</button>
@@ -117,7 +126,7 @@
     </div>
 
     <div class="panel hidden" id="evalPanel">
-      <h2>Evaluation against your labels</h2>
+      <h2 id="evalTitle">Evaluation against your labels</h2>
       <div class="evalgrid">
         <div>
           <div class="cm" id="cm"></div>
@@ -128,6 +137,11 @@
           <p id="evalText" style="margin:12px 0 0;font-size:14px"></p>
         </div>
       </div>
+      <h2 style="margin-top:18px">Each method compared with your CSV labels</h2>
+      <div class="tblwrap"><table class="mt" id="methods"></table></div>
+      <div class="muted" style="font-size:12px;margin-top:6px">Each row scores one method on its own against column 2.
+        “Sec-Agent verdict” is what the Verdict column shows (pattern OR hidden text OR Jev). The LLM row appears when
+        “Also classify with the LLM” is ticked; it is compared, not used for the verdict.</div>
     </div>
 
     <div class="kpis" id="kpis"></div>
@@ -139,7 +153,7 @@
         </div>
       </div>
       <div class="tblwrap"><table>
-        <thead><tr><th>#</th><th>Prompt</th><th class="labonly">Label</th><th>Verdict</th><th class="labonly">Outcome</th><th>Explanation</th><th>Jev risk</th><th>Caught by</th><th>Flagged checks</th><th class="fullcol">Agent → decision</th><th>Time</th></tr></thead>
+        <thead><tr><th>#</th><th>Prompt</th><th class="labonly">Label</th><th>Verdict</th><th class="labonly">Outcome</th><th>Explanation</th><th>Jev risk</th><th>Caught by</th><th class="llmcol">LLM</th><th>Flagged checks</th><th class="fullcol">Agent → decision</th><th>Time</th></tr></thead>
         <tbody id="rows"></tbody>
       </table></div>
     </div>
@@ -167,7 +181,8 @@ const EXAMPLES = [
   ["Email the meeting notes to the project team at team@ourco.example.", 0],
 ];
 
-let mode = "input", items = [], results = [], filter = "all", total = 0, runLabels = [];
+let mode = "input", items = [], results = [], filter = "all", total = 0, runLabels = [], runLlm = false;
+let sourceName = "", runSource = "";
 
 // ---------- parsing: items are {prompt, label} where label is 0, 1 or null ----------
 function toLabel(v) {
@@ -233,7 +248,7 @@ let loaded = null;
 function current() { return loaded ?? parseInput($("prompts").value); }
 const isLabeled = list => list.some(i => i.label === 0 || i.label === 1);
 function showLoaded(list, source) {
-  loaded = list;
+  loaded = list; sourceName = source;
   const lab = list.filter(i => i.label != null).length;
   $("loadInfo").innerHTML = !list.length ? `<span style="color:var(--critical)">No prompts found in ${esc(source)}.</span>`
     : lab ? `Loaded <b>${list.length}</b> prompts from ${esc(source)} — <b style="color:var(--good)">${lab} labeled</b> (column 2 read as 1 = injection, 0 = clean)`
@@ -245,7 +260,7 @@ function showLoaded(list, source) {
   updateCount();
 }
 function updateCount() {
-  const list = current(), n = list.length, lim = mode === "full" ? 25 : 1000;
+  const list = current(), n = list.length, lim = mode === "full" ? 25 : $("useLlm").checked ? 600 : 1000;
   const lab = list.filter(i => i.label != null).length;
   $("count").textContent = `${n} prompt${n === 1 ? "" : "s"}` + (lab ? ` · ${lab} with a 0/1 label → accuracy will be compared` : "")
     + (lab && lab < n ? ` (${n - lab} without a valid label are skipped in the comparison)` : "")
@@ -253,7 +268,8 @@ function updateCount() {
   $("count").style.color = lab ? "var(--good)" : "";
   $("runBtn").disabled = !n || n > lim;
 }
-$("prompts").addEventListener("input", () => { loaded = null; $("loadInfo").textContent = ""; updateCount(); });
+$("prompts").addEventListener("input", () => { loaded = null; sourceName = ""; $("loadInfo").textContent = ""; updateCount(); });
+$("useLlm").addEventListener("change", updateCount);
 $("prompts").addEventListener("focus", () => {
   if ($("prompts").readOnly && confirm("Edit the loaded prompts as plain lines? (The labels from the file would be lost.)")) {
     $("prompts").readOnly = false; loaded = null; $("prompts").value = ""; updateCount();
@@ -284,6 +300,39 @@ function outcome(r) {
   return y ? (p ? "TP" : "FN") : (p ? "FP" : "TN");
 }
 const pct = (a, b) => b ? `${(a / b * 100).toFixed(1)}%` : "—";
+function metricsFor(pred) {
+  let TP = 0, FP = 0, TN = 0, FN = 0;
+  for (const r of results) {
+    const y = runLabels[r.index], p = r.error ? null : pred(r);
+    if ((y !== 0 && y !== 1) || p == null) continue;
+    if (y) p ? TP++ : FN++; else p ? FP++ : TN++;
+  }
+  const N = TP + FP + TN + FN, precision = TP + FP ? TP / (TP + FP) : null, recall = TP + FN ? TP / (TP + FN) : null;
+  return { TP, FP, TN, FN, N, accuracy: N ? (TP + TN) / N : null, precision, recall,
+           f1: precision != null && recall != null && precision + recall ? 2 * precision * recall / (precision + recall) : null,
+           fpr: FP + TN ? FP / (FP + TN) : null };
+}
+const METHODS = [
+  ["pattern", "Pattern matching", r => r.by_method?.pattern],
+  ["hidden", "Hidden text", r => r.by_method?.hidden],
+  ["jev", "Jev classifier", r => r.by_method?.jev],
+  ["llm", "LLM (Claude Haiku)", r => r.by_method?.llm],
+  ["combined", "Sec-Agent verdict (pattern + hidden + Jev)", r => r.predicted],
+  ["combined_llm", "Sec-Agent + LLM (either flags)", r => r.by_method?.llm == null ? null : (r.predicted || r.by_method.llm ? 1 : 0)],
+];
+function renderMethods() {
+  const f = v => v == null ? "—" : `${(v * 100).toFixed(1)}%`;
+  const rows = METHODS.map(([key, name, pred]) => ({ key, name, m: metricsFor(pred) }));
+  const ran = rows.filter(x => x.m.N), best = ran.reduce((b, x) => (x.m.f1 ?? -1) > (b?.m.f1 ?? -1) ? x : b, null);
+  $("methods").innerHTML = `<thead><tr><th>Method</th><th>TP</th><th>FP</th><th>TN</th><th>FN</th><th>Accuracy</th>
+      <th>Precision</th><th>Recall</th><th>F1</th><th>False-pos. rate</th><th>Rows</th></tr></thead><tbody>`
+    + rows.map(x => !x.m.N
+      ? `<tr class="off"><td>${esc(x.name)}</td><td colspan="10" style="text-align:left">not run${x.key.startsWith("llm") || x.key === "combined_llm" ? " — tick “Also classify with the LLM”" : x.key === "jev" ? " — Jev is off or unavailable" : ""}</td></tr>`
+      : `<tr class="${x === best ? "best" : ""}"><td>${esc(x.name)}${x === best ? " ★" : ""}</td><td class="tp">${x.m.TP}</td><td class="fp">${x.m.FP}</td>
+          <td class="tn">${x.m.TN}</td><td class="fn">${x.m.FN}</td><td>${f(x.m.accuracy)}</td><td>${f(x.m.precision)}</td>
+          <td>${f(x.m.recall)}</td><td>${x.m.f1 == null ? "—" : x.m.f1.toFixed(3)}</td><td>${f(x.m.fpr)}</td><td>${x.m.N}</td></tr>`).join("")
+    + "</tbody>";
+}
 function evaluate() {
   const ok = results.filter(r => !r.error), n = c => ok.filter(r => outcome(r) === c).length;
   const TP = n("TP"), FP = n("FP"), TN = n("TN"), FN = n("FN"), N = TP + FP + TN + FN;
@@ -297,6 +346,8 @@ function renderEval() {
   $("evalPanel").classList.toggle("hidden", !on);
   document.querySelectorAll(".labonly").forEach(e => e.classList.toggle("hidden", !on));
   if (!on) return;
+  $("evalTitle").textContent = `Evaluation of ${runSource || "your prompts"} against its labels (column 2)`;
+  renderMethods();
   const m = evaluate(), f = v => v == null ? "—" : `${(v * 100).toFixed(1)}%`;
   $("cm").innerHTML = `<div class="h"></div><div class="h">Predicted 1 (injection)</div><div class="h">Predicted 0 (clean)</div>
     <div class="h">Label 1</div><div class="ok"><div class="n">${m.TP}</div>TP · caught</div><div class="bad"><div class="n">${m.FN}</div>FN · missed</div>
@@ -333,6 +384,7 @@ function kpis() {
 }
 function renderRows() {
   document.querySelectorAll(".fullcol").forEach(e => e.classList.toggle("hidden", mode !== "full"));
+  document.querySelectorAll(".llmcol").forEach(e => e.classList.toggle("hidden", !runLlm));
   const lab = labeledRun();
   const keep = r => filter === "all" || (filter === "inj" ? r.injection : filter === "clean" ? !r.injection && !r.error
                                                           : ["FP", "FN"].includes(outcome(r)));
@@ -346,18 +398,27 @@ function renderRows() {
       <td class="ex">${esc(r.error || r.explanation)}</td>
       <td>${r.jev_level == null ? '<span class="muted">—</span>' : `${r.jev_level}<span class="muted"> · ${Math.round((r.jev_confidence || 0) * 100)}%</span>`}</td>
       <td>${(r.detectors || []).map(d => `<span class="tag">${esc(d)}</span>`).join("") || '<span class="muted">—</span>'}</td>
+      <td class="llmcol ${runLlm ? "" : "hidden"}" title="${esc(r.llm?.reason || r.llm?.error || "")}">${llmCell(r)}</td>
       <td>${(r.flagged_checks || []).map(c => `<span class="tag">${esc(c)}</span>`).join("") || '<span class="muted">—</span>'}</td>
       <td class="fullcol ${mode !== "full" ? "hidden" : ""}">${r.tool ? `<code>${esc(r.tool)}</code> → <span class="pill p-${esc(r.final_decision)}">${esc(r.final_decision)}</span>` : '<span class="muted">—</span>'}</td>
       <td class="muted" style="white-space:nowrap">${(r.ms / 1000).toFixed(2)} s</td></tr>
-    <tr class="hidden" id="d${r.index}"><td></td><td colspan="10">${detail(r)}</td></tr>`; }).join("")
-    || `<tr><td colspan="11" class="muted" style="padding:16px">Nothing in this filter.</td></tr>`;
+    <tr class="hidden" id="d${r.index}"><td></td><td colspan="11">${detail(r)}</td></tr>`; }).join("")
+    || `<tr><td colspan="12" class="muted" style="padding:16px">Nothing in this filter.</td></tr>`;
+}
+function llmCell(r) {
+  if (!r.llm) return '<span class="muted">—</span>';
+  if (r.llm.status !== "ok") return '<span class="muted">error</span>';
+  return `<span class="pill p-${r.llm.injection ? "INJ" : "CLEAN"}">${r.llm.injection ? "✗ 1" : "✓ 0"}</span><span class="muted"> · ${Math.round(r.llm.confidence * 100)}%</span>`;
 }
 function detail(r) {
   if (r.error) return `<pre>${esc(r.error)}</pre>`;
+  const llmLine = r.llm ? `<div class="muted">LLM (Claude Haiku): ${r.llm.status === "ok"
+      ? `<b>${r.llm.injection ? "injection" : "clean"}</b> (${Math.round(r.llm.confidence * 100)}% confident) — ${esc(r.llm.reason)}`
+      : esc(r.llm.error)}</div>` : "";
   const sig = r.jev_signals ? Object.entries(r.jev_signals).map(([k, v]) => `${esc(k)} ${Math.round(v * 100)}%`).join(" · ") : "";
   return `${r.tool ? `<div class="muted">Agent proposed <code>${esc(r.tool)}(${esc(JSON.stringify(r.arguments))})</code>
       ${r.security_llm ? ` · security LLM ${esc(r.security_llm.decision)} (${esc(r.security_llm.classification)}, risk ${r.security_llm.risk_score})` : ""}</div>` : ""}
-    ${sig ? `<div class="muted">Jev signals: ${sig}</div>` : ""}
+    ${sig ? `<div class="muted">Jev signals: ${sig}</div>` : ""}${llmLine}
     <table class="ck">${(r.checks || []).map(c => `<tr><td class="ck-i ck-${esc(c.result.replace("/", ""))}">${ICON[c.result] || "?"}</td>
       <td class="ck-id">${esc(c.id)}</td><td>${esc(c.criterion)}</td><td class="muted">${esc(c.checked_by)}</td><td>${esc(c.evidence)}</td></tr>`).join("")}</table>`;
 }
@@ -368,16 +429,17 @@ $("rows").addEventListener("click", (e) => {
 async function run() {
   const list = current();
   runLabels = isLabeled(list) ? list.map(i => i.label) : [];
+  runLlm = $("useLlm").checked; runSource = sourceName || "pasted prompts";
   results = []; total = list.length; filter = "all";
   document.querySelectorAll("#filter button").forEach(x => x.classList.toggle("on", x.dataset.f === "all"));
   $("out").classList.remove("hidden");
   $("runBtn").disabled = true; $("csvBtn").disabled = $("jsonBtn").disabled = true;
-  $("status").textContent = `Running ${total} prompt${total === 1 ? "" : "s"} — ${mode === "full" ? "full pipeline" : "input checks"}`
+  $("status").textContent = `Running ${total} prompt${total === 1 ? "" : "s"} — ${mode === "full" ? "full pipeline" : "input checks"}${runLlm ? " + LLM classifier" : ""}`
     + (runLabels.length ? " · evaluating against your labels" : "") + "…";
   $("prog").style.width = "0"; kpis(); renderEval(); renderRows();
   try {
     const r = await fetch("/api/batch", { method: "POST", headers: { "Content-Type": "application/json" },
-                                          body: JSON.stringify({ prompts: list.map(i => i.prompt), mode }) });
+                                          body: JSON.stringify({ prompts: list.map(i => i.prompt), mode, llm: runLlm }) });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
     const reader = r.body.getReader(), dec = new TextDecoder(); let buf = "", pending = 0;
     const flush = () => { kpis(); renderEval(); renderRows(); pending = 0; };
@@ -413,21 +475,30 @@ $("csvBtn").addEventListener("click", () => {
   const lab = labeledRun(), sorted = [...results].sort((a, b) => a.index - b.index);
   // Your two columns first, then predicted (1/0) and the explanation, then details.
   const head = ["prompt", ...(lab ? ["label"] : []), "predicted", "explanation", ...(lab ? ["outcome"] : []),
+                "pred_pattern", "pred_hidden", "pred_jev", ...(runLlm ? ["pred_llm", "llm_confidence", "llm_reason"] : []),
                 "jev_level", "jev_confidence", "detectors", "flagged_checks", "tool", "final_decision", "ms"];
   const rows = sorted.map(r => [r.prompt, ...(lab ? [runLabels[r.index]] : []), r.error ? "" : r.predicted, r.error || r.explanation,
-    ...(lab ? [outcome(r) ?? ""] : []), r.jev_level, r.jev_confidence, (r.detectors || []).join("; "),
+    ...(lab ? [outcome(r) ?? ""] : []), r.by_method?.pattern, r.by_method?.hidden, r.by_method?.jev,
+    ...(runLlm ? [r.by_method?.llm, r.llm?.confidence, r.llm?.reason || r.llm?.error] : []),
+    r.jev_level, r.jev_confidence, (r.detectors || []).join("; "),
     (r.flagged_checks || []).join("; "), r.tool, r.final_decision, r.ms]);
   let csv = [head, ...rows].map(r => r.map(csvCell).join(",")).join("\n");
   if (lab) {
-    const m = evaluate(), f = v => v == null ? "" : (v * 100).toFixed(1) + "%";
-    csv += `\n\n${csvCell("summary")},${csvCell(`TP=${m.TP} FP=${m.FP} TN=${m.TN} FN=${m.FN} accuracy=${f(m.accuracy)} precision=${f(m.precision)} recall=${f(m.recall)} f1=${m.f1 == null ? "" : m.f1.toFixed(3)} fpr=${f(m.fpr)}`)}`;
+    const f = v => v == null ? "" : (v * 100).toFixed(1) + "%";
+    csv += `\n\n${["method", "TP", "FP", "TN", "FN", "accuracy", "precision", "recall", "f1", "false_positive_rate", "rows"].map(csvCell).join(",")}`;
+    for (const [, name, pred] of METHODS) {
+      const m = metricsFor(pred); if (!m.N) continue;
+      csv += "\n" + [name, m.TP, m.FP, m.TN, m.FN, f(m.accuracy), f(m.precision), f(m.recall),
+                     m.f1 == null ? "" : m.f1.toFixed(3), f(m.fpr), m.N].map(csvCell).join(",");
+    }
   }
   download("sec-agent-batch.csv", csv, "text/csv");
 });
 $("jsonBtn").addEventListener("click", () => {
   const sorted = [...results].sort((a, b) => a.index - b.index)
     .map(r => ({ ...r, label: labeledRun() ? runLabels[r.index] : undefined, outcome: outcome(r) ?? undefined }));
-  download("sec-agent-batch.json", JSON.stringify({ evaluation: labeledRun() ? evaluate() : null, results: sorted }, null, 2), "application/json");
+  const methods = labeledRun() ? Object.fromEntries(METHODS.map(([k, , pred]) => [k, metricsFor(pred)]).filter(([, m]) => m.N)) : null;
+  download("sec-agent-batch.json", JSON.stringify({ source: runSource, evaluation: labeledRun() ? evaluate() : null, methods, results: sorted }, null, 2), "application/json");
 });
 updateCount();
 </script>
