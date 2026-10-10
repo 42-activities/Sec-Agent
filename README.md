@@ -2,7 +2,9 @@
 
 # AI Agent Security Controller
 
-A defense-in-depth security layer for autonomous AI agents built with **LangChain / LangGraph**.
+A defense-in-depth security layer for autonomous AI agents built with **LangChain / LangGraph** and **Amazon Bedrock**.
+
+**Live demo:** https://sec-agent.naurzalinov.me — controller (live data flow) · [`/rules`](https://sec-agent.naurzalinov.me/rules) (policy rules) · [`/soc`](https://sec-agent.naurzalinov.me/soc) (security operations dashboard).
 
 ## What problem are we solving?
 
@@ -127,6 +129,17 @@ The guard looks for:
 - attempts to trigger external communication;
 - suspicious source provenance.
 
+In this implementation the guard combines two detectors:
+
+- **pattern matching** — fast, explainable regexes for known injection phrasing;
+- **Jev (TypeSafe AI)** — a calibrated classifier that rates each untrusted input on a
+  0 / 20 / 40 / 60 / 80 / 100 prompt-injection risk scale, with a confidence and four signals
+  (instructions to an AI, redirecting data or money, asking for secrets, pressure). It catches
+  realistic injections that pattern matching misses, in ~300 ms.
+
+Either detector can mark content suspicious; neither can ever mark it trusted. Content is
+**labeled, not removed** — the executor still sees it, and enforcement happens on the way out.
+
 It also assigns trust metadata.
 
 Example:
@@ -209,23 +222,19 @@ Example decision:
 
 The Security Agent is not trusted as the sole authority.
 
-Certain restrictions are enforced directly in code.
+Certain restrictions are enforced directly in code. The rules run in this order:
 
-For example:
+| # | Rule | Decision |
+|---|---|---|
+| 1 | Only allowed tools may be proposed | DENY |
+| 2 | Forbidden resources (`.ssh`, `.aws`, `.env`, credentials, secrets…) in any argument | DENY |
+| 3 | Payments only to the bank account on file for that supplier ("our bank details changed" fraud) | DENY |
+| 4 | Email only to company domains (data egress) | DENY |
+| 5 | High-impact actions (payments) always need a human | APPROVAL |
+| 6 | Consequential actions influenced by untrusted content need a human | APPROVAL |
 
-```text
-DENY:
-    ~/.ssh/**
-    ~/.aws/**
-    .env
-    credential stores
-
-REQUIRE APPROVAL:
-    external emails
-    file deletion
-    external HTTP POST
-    privileged write operations
-```
+The rule *logic* is code; the lists it checks (tools, paths, known payees, domains…) are editable
+on the [`/rules`](https://sec-agent.naurzalinov.me/rules) page behind an admin password.
 
 Therefore:
 
@@ -269,16 +278,13 @@ The Security Agent should be independent from the Executor Agent.
 
 They may even use different models.
 
-Example:
+In this implementation:
 
 ```text
-Executor:
-large capable model
-
-Security controller:
-smaller local model
-+
-deterministic rules
+Executor:            Claude Sonnet 4.5 (Bedrock)
+Security controller: Claude Haiku 4.5 (Bedrock) — a different, independent model
+Input classifier:    Jev (TypeSafe AI) — not an LLM; returns probabilities, not text
+Final authority:     deterministic rules
 ```
 
 ---
@@ -431,6 +437,10 @@ External destination + confidential document
 
 This keeps humans responsible for consequential or ambiguous decisions.
 
+In the demo every payment waits for a person, even a clean one, and the approval card shows the
+exact payee, amount and IBAN plus every reason approval was needed. A human can approve or reject
+an APPROVAL; nobody can override a DENY.
+
 ---
 
 # Example Attack
@@ -511,33 +521,45 @@ The architecture combines:
 
 ---
 
-# Initial PoC
+# What the PoC implements
 
-The first version can support five tools:
-
-```text
-read_document()
-read_file()
-write_file()
-send_email()
-http_request()
-```
-
-and demonstrate three attacks:
+Tools (all behind the execution proxy; email, HTTP and payments are stubs, file tools are sandboxed):
 
 ```text
-1. poisoned PDF
-2. poisoned webpage / RAG document
-3. poisoned MCP result
+respond_to_user()   read_document()   read_file()   write_file()
+send_email()        http_request()    pay_invoice()
 ```
 
-Every proposed operation receives one of three decisions:
+Demo scenarios, one click each on the controller page:
 
-```text
-ALLOW
-APPROVAL
-DENY
-```
+| Domain | Scenario | What happens |
+|---|---|---|
+| Finance | Clean invoice | Answer delivered (ALLOW) |
+| Finance | Pay invoice | Payment waits for a human (APPROVAL) |
+| Finance | Bank-details fraud | Payment to an attacker's IBAN — DENY (rule 3) |
+| Finance | Hijacked agent | The **live** LLM is fooled into emailing data out — DENY (rule 4 + security LLM) |
+| Finance | Credential theft | Compromised agent reads an SSH key — DENY (rule 2) |
+| Recruiting | Screen a CV | Summary email waits for a human (APPROVAL) |
+| Recruiting | Candidate-data theft | Poisoned CV reroutes the email — DENY (rule 4) |
+
+Attack sources covered so far: poisoned documents (invoices, CVs). Poisoned webpages / RAG results
+and poisoned MCP output are planned.
+
+Every proposed operation receives one of three decisions: `ALLOW`, `APPROVAL`, `DENY` — and every
+decision is recorded for the SOC dashboard.
+
+---
+
+# SOC dashboard
+
+[`/soc`](https://sec-agent.naurzalinov.me/soc) is a security-operations view of every decision:
+a plain-language summary, totals (blocked, sent to a human, attacks that reached a tool), decisions
+over time, attack types, which layer caught them, which rules fired, the Jev risk distribution, and
+an incident table with the full audit trail.
+
+Events are stored in SQLite (the pasted document itself is never stored — only its size and a hash)
+and also written as one JSON line per event to the container log, ready for a SIEM such as
+CloudWatch Logs, AWS Security Hub or Amazon Security Lake.
 
 ---
 
@@ -571,20 +593,21 @@ That separation is the central security boundary of the project.
 
 # Running it
 
-Live demo: **https://sec-agent.naurzalinov.me** — paste a poisoned document and watch the request flow through
-Input → Sec-Agent input guard → Executor LLM → Sec-Agent output guard → Execution proxy in real time.
+Live demo: **https://sec-agent.naurzalinov.me** — pick a scenario or paste a poisoned document and watch the request
+flow through Input → Sec-Agent input guard → Executor LLM → Sec-Agent output guard → Execution proxy in real time.
 
 Local:
 
 ```bash
-cp env.example .env                 # add a Bedrock API key + PROXY_AUTH_TOKEN
+cp env.example .env                 # Bedrock API key + PROXY_AUTH_TOKEN; optional TYPESAFE_API_KEY (Jev), RULES_ADMIN_TOKEN
 python3 -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev,web]"
 pytest -q                           # offline tests
-sec-web                             # http://127.0.0.1:8000
+sec-web                             # http://127.0.0.1:8000  (also /rules, /soc)
 ```
 
-Two isolated containers (controller holds only the Bedrock key; proxy holds only tool credentials and has no internet):
+Two isolated containers — the controller holds the model keys (Bedrock, optional Jev); the proxy holds only tool
+credentials, owns the policy rules, re-checks every action itself, and has no internet:
 
 ```bash
 docker compose up --build           # http://127.0.0.1:8700

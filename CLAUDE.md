@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current State
 
-PoC scaffolded and runnable. Stack: Python (>=3.10) + LangGraph + `langchain-aws` (Amazon Bedrock) + Pydantic. The full `input_guard → executor → security → policy → proxy` pipeline works end-to-end and the poisoned-invoice demo blocks credential exfiltration via both the security LLM and the deterministic policy engine.
+Working PoC, deployed at https://sec-agent.naurzalinov.me. Stack: Python (>=3.10) + LangGraph + `langchain-aws` (Amazon Bedrock) + Pydantic + FastAPI, optional Jev (TypeSafe AI) classifier. The full `input_guard → executor → security → policy → proxy` pipeline runs end-to-end with a live-streaming UI (`/`), editable policy rules (`/rules`), human approval, and a SOC dashboard (`/soc`). Demo scenarios cover two domains (finance, recruiting).
 
 ### Commands
 
@@ -12,14 +12,14 @@ PoC scaffolded and runnable. Stack: Python (>=3.10) + LangGraph + `langchain-aws
 python3 -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev,web]"        # install package + dev + web deps
 
-pytest -q                          # offline tests (deterministic policy engine; no network)
+pytest -q                          # offline tests: policy, tools, rules, Jev (mocked), events — no network
 pytest tests/test_policy.py -q     # single test file
 python -m sec_agent.demo.poisoned_invoice   # live end-to-end demo (needs Bedrock creds)
 sec-web                            # single-process web UI → http://127.0.0.1:8000
 sec-proxy                          # standalone execution-proxy service (:8001)
 ```
 
-Two-container deployment (privilege separation; needs `.env` with `PROXY_AUTH_TOKEN` + Bedrock creds):
+Two-container deployment (privilege separation; needs `.env` with `PROXY_AUTH_TOKEN` + Bedrock creds; optional `TYPESAFE_API_KEY` for Jev, `RULES_ADMIN_TOKEN` to enable rule editing):
 
 ```bash
 docker compose up --build          # controller → 127.0.0.1:8700 (SEC_AGENT_PORT) + proxy (internal only)
@@ -34,7 +34,7 @@ docker compose up --build          # controller → 127.0.0.1:8700 (SEC_AGENT_PO
 
 ### Layout
 
-`sec_agent/` — `config.py` (settings + denylist), `models.py` (Pydantic contracts + `AgentState`), `llm.py` (Bedrock model factories), `nodes/` (`input_guard`, `executor`, `security`, `policy`), `proxy.py` (execution proxy — only tool executor), `tools/` (the controlled tool set), `graph.py` (LangGraph wiring), `demo/`, `web/` (FastAPI app + static UI). Tests in `tests/`.
+`sec_agent/` — `config.py` (settings; factory defaults for the rules), `models.py` (Pydantic contracts + `AgentState`), `llm.py` (Bedrock model factories), `nodes/` (`input_guard`, `executor`, `security`, `policy`), `rules.py` (editable rule lists), `jev.py` (Jev risk scoring), `events.py` (SOC event log + summary), `proxy.py` (in-process execution proxy), `proxy_client.py` + `proxy_service/` (two-container proxy), `tools/` (the controlled tool set, sandboxed), `graph.py` (LangGraph wiring), `demo/` (CLI demo), `web/` (FastAPI app; static pages `index.html` controller, `rules.html`, `soc.html`). Tests in `tests/` (`conftest.py` isolates rules/events files and disables Jev). Deployment: `Dockerfile`, `docker-compose.yml`, `deploy/` (host nginx vhost), `.github/workflows/`.
 
 `web/app.py` exposes the human-in-the-loop flow: `POST /analyze` runs the controller and **stops before execution** (graph built with `execute=False`), stashing state under a session id; `POST /execute` runs the proxy with the human's approve/deny. `POST /analyze/stream` is the same run but emits one NDJSON event per graph node (`graph.stream(stream_mode="updates")`) — the UI (`web/static/index.html`) uses it to animate Input → input guard → executor → output guard → proxy live. It sets `X-Accel-Buffering: no` so nginx doesn't buffer it. `GET /health` is used by the deploy health check. `build_graph(include_executor=, execute=)` controls both the compromised-executor simulation and the stop-before-execute behavior.
 
@@ -42,16 +42,17 @@ docker compose up --build          # controller → 127.0.0.1:8700 (SEC_AGENT_PO
 
 `docker-compose.yml` runs two containers from one image (`Dockerfile`), separated by **credentials and network**, which turns the "no executor→tool bypass" invariant into a hard boundary:
 
-- **controller** (`sec-web`, :8000 in-container, published on `127.0.0.1:8700` only; `WEB_HOST=0.0.0.0` inside the container): web UI + input_guard + executor LLM + security LLM + policy engine. Holds the **Bedrock token only**; has internet egress (for Bedrock). When `PROXY_URL` is set, `/execute` forwards to the proxy via `sec_agent/proxy_client.py` instead of executing in-process.
-- **proxy** (`sec-proxy`, :8001, `sec_agent/proxy_service/`): the execution proxy + real tools. Holds **tool credentials only**, **no Bedrock access**, on an `internal: true` network (no host port, no internet egress).
+- **controller** (`sec-web`, :8000 in-container, published on `127.0.0.1:8700` only; `WEB_HOST=0.0.0.0` inside the container): web UI + input_guard + executor LLM + security LLM + policy engine + SOC event log (`events-data` volume). Holds the **Bedrock token** and the optional **Jev key** — no tool credentials, no rules admin password; has internet egress (Bedrock, TypeSafe). When `PROXY_URL` is set, `/execute` forwards to the proxy via `sec_agent/proxy_client.py` instead of executing in-process.
+- **proxy** (`sec-proxy`, :8001, `sec_agent/proxy_service/`): the execution proxy + real tools, and the **owner of the editable rules** (`rules-data` volume, `RULES_ADMIN_TOKEN`). Holds **tool credentials only**, **no Bedrock/Jev access**, on an `internal: true` network (no host port, no internet egress).
 
 The proxy service is **zero-trust toward the controller**: `POST /execute-action` ignores the caller's claimed decision and independently re-runs `policy.evaluate()`, refusing any DENY (and any APPROVAL without approval). A compromised controller therefore still cannot reach a denied resource. Services authenticate with the shared `PROXY_AUTH_TOKEN`.
 
 ### Deployment & CI/CD
 
-- Live at **https://sec-agent.naurzalinov.me** (Hetzner arm64 host). Host nginx (`deploy/sec-agent.naurzalinov.me`, TLS via certbot) proxies to `127.0.0.1:8700`. The app has no auth of its own.
+- Live at **https://sec-agent.naurzalinov.me** (Hetzner arm64 host). Host nginx (`deploy/sec-agent.naurzalinov.me`, TLS via certbot) proxies to `127.0.0.1:8700`. Pages are public; the only login is the admin password for editing rules.
 - `.github/workflows/pipeline.yml`: on push to `main` → `ci.yml` (pytest) → `docker-deploy.yml` builds `ghcr.io/42-activities/sec-agent-app:<sha>` for arm64, SSHes to the server, pulls, `docker compose up`, checks `/health`, rolls back on failure. PRs only test + build. Same pattern as LegoBot.
-- **The server's `.env` is rewritten on every deploy** from GitHub secrets (`AWS_BEARER_TOKEN_BEDROCK`, `PROXY_AUTH_TOKEN`) and variables (`AWS_REGION`, `EXECUTOR_MODEL_ID`, `SECURITY_MODEL_ID`). Never edit `.env` on the server; rotate the Bedrock key with `gh secret set AWS_BEARER_TOKEN_BEDROCK && gh workflow run pipeline.yml`.
+- **The server's `.env` is rewritten on every deploy** from GitHub secrets (`AWS_BEARER_TOKEN_BEDROCK`, `PROXY_AUTH_TOKEN`, `TYPESAFE_API_KEY`, `RULES_ADMIN_TOKEN` — the last two optional; empty = feature off) and variables (`AWS_REGION`, `EXECUTOR_MODEL_ID`, `SECURITY_MODEL_ID`). Never edit `.env` on the server; rotate the Bedrock key with `gh secret set AWS_BEARER_TOKEN_BEDROCK && gh workflow run pipeline.yml`.
+- Actions are on their Node 24 majors (checkout/setup-python v7, docker/* v4, build-push v7); runners pinned to `ubuntu-24.04`.
 - Deploy aborts if the server checkout (`~/projects/Sec-Agent`) has uncommitted changes to tracked files.
 
 ### Tools & demo scenarios
@@ -168,7 +169,7 @@ Reviews every consequential proposed action against: match to original objective
 Decisions: `ALLOW`, `APPROVAL` (human-in-the-loop), `DENY`.
 
 ### Execution Proxy
-The sole invoker of real tools (`read_file`, `write_file`, `send_email`, `http_request`, `database_query`, MCP tools, GitHub actions, cloud APIs). Rejects anything without a valid authorization decision.
+The sole invoker of real tools. Implemented: `respond_to_user`, `read_document`, `read_file`, `write_file`, `send_email`, `http_request`, `pay_invoice` (email/HTTP/payment are stubs; file tools are sandboxed). Planned: `database_query`, MCP tools, GitHub actions, cloud APIs. Rejects anything without a valid authorization decision.
 
 ## Design Conventions
 
@@ -189,23 +190,23 @@ The sole invoker of real tools (`read_file`, `write_file`, `send_email`, `http_r
   { "id": "document-42", "source": "invoice.pdf", "source_type": "document", "trust": "untrusted", "taint": "external" }
   ```
 
-- **Orchestrate with LangGraph:**
+- **Orchestrate with LangGraph** (`graph.py`):
 
   ```text
-  START → input_guard → main_agent → security_controller
-                                         ├── ALLOW    → execute
-                                         ├── APPROVAL → human_approval
-                                         └── DENY     → END
+  START → input_guard → executor → security → policy ─┬─ DENY ─────────────→ END
+                                                       └─ ALLOW / APPROVAL → execute (proxy)
   ```
+
+  The web app builds the graph with `execute=False` (stops after `policy`), then `/execute` runs the proxy with the human's answer — APPROVAL is the human gate, DENY can never execute.
 
 ## PoC Scope
 
-Initial controlled tool set: `read_document()`, `read_file()`, `write_file()`, `send_email()`, `http_request()`.
+Tool set: `respond_to_user`, `read_document`, `read_file`, `write_file`, `send_email`, `http_request`, `pay_invoice`.
 
 Attack scenarios the PoC must demonstrate:
-1. Malicious document / indirect prompt injection.
-2. Poisoned webpage or RAG result.
-3. Poisoned MCP tool output or description.
+1. Malicious document / indirect prompt injection — **done** (invoices and CVs: credential theft, data exfiltration, bank-details fraud, a live-executor hijack).
+2. Poisoned webpage or RAG result — **not yet** (the input path accepts any text, but there is no webpage/RAG source or scenario).
+3. Poisoned MCP tool output or description — **not yet**.
 
 The demo should **intentionally let the main agent become compromised**, then show the controller blocking the resulting unauthorized action — proving that a compromised agent does not mean a compromised system.
 
