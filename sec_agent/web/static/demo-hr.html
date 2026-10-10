@@ -122,6 +122,24 @@
   .note { border-left: 3px solid var(--sec); padding: 4px 0 4px 12px; font-size: 13.5px; color: var(--muted); }
   .note b { color: var(--text); }
   .err { color: var(--deny); font-size: 13px; }
+  .ch-note { flex-basis: 100%; font-size: 11.5px; }
+  dialog.impact { max-width: 540px; width: calc(100% - 32px); background: var(--panel); color: var(--text);
+    border: 1px solid var(--border-strong); border-radius: 12px; padding: 20px 22px; }
+  dialog.impact::backdrop { background: rgb(0 0 0 / .55); }
+  dialog.impact h2 { font-family: var(--display); font-size: 19px; margin: 0 0 10px; text-transform: none; letter-spacing: 0; color: var(--text); }
+  dialog.impact h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 14px 0 6px; }
+  dialog.impact dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0; font-size: 13.5px; }
+  dialog.impact dt { color: var(--muted); }
+  dialog.impact dd { margin: 0; }
+  dialog.impact ul, dialog.impact ol { margin: 0; padding-left: 20px; font-size: 13.5px; }
+  dialog.impact li { margin: 2px 0; }
+  dialog.impact .sec-status { border: 1px solid color-mix(in srgb, var(--approval) 55%, transparent);
+    background: color-mix(in srgb, var(--approval) 12%, transparent); border-radius: 8px; padding: 8px 12px; margin-top: 12px; }
+  dialog.impact .note { font-size: 12.5px; color: var(--muted); margin-top: 10px; }
+  dialog.impact .acts { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-top: 16px; }
+  dialog.impact .acts button { border-radius: 7px; padding: 8px 14px; font: inherit; font-weight: 600; cursor: pointer; }
+  dialog.impact .acts .keep-out { background: var(--allow); color: var(--on-allow); border: 0; }
+  dialog.impact .acts .let-in { background: transparent; color: var(--deny); border: 1px solid var(--deny); }
 </style>
 </head>
 <body>
@@ -201,6 +219,34 @@
   </section>
 </main>
 <footer class="site-foot"><a href="/privacy">Privacy policy</a> · <a href="/terms">Terms of use</a> · <a href="https://github.com/42-activities/Sec-Agent">Source code</a></footer>
+
+<dialog class="impact" id="incDialog" aria-labelledby="incTitle">
+  <h2 id="incTitle">Include flagged application?</h2>
+  <dl><dt>Applicant</dt><dd id="incWho"></dd><dt>Current state</dt><dd>Flagged by the input guard</dd></dl>
+  <h3>Why it was flagged</h3>
+  <ul id="incSignals"></ul>
+  <h3>Details</h3>
+  <ul id="incReasons"></ul>
+  <div class="sec-status">
+    <dl><dt>Security status</dt><dd>Review required</dd>
+      <dt>Risk category</dt><dd>Suspicious untrusted content</dd>
+      <dt>Jev risk score</dt><dd id="incJev">not available</dd>
+      <dt>Protection remains active</dt><dd>Yes</dd></dl>
+  </div>
+  <h3>If you include this application</h3>
+  <ol>
+    <li>The application becomes available to the shortlist workflow.</li>
+    <li>Its content may influence the agent’s proposed shortlist or summary.</li>
+    <li>Sec-Agent will continue to evaluate every later tool action.</li>
+    <li>Any sensitive or consequential action can still be denied or require another human approval.</li>
+    <li>Inclusion does not send an email, advance the applicant, or make a hiring decision.</li>
+  </ol>
+  <p class="note">A flag is a security signal about the content of this email — not an assessment of the applicant.</p>
+  <div class="acts">
+    <button type="button" class="let-in" id="incYes">Include application</button>
+    <button type="button" class="keep-out" id="incNo" autofocus>Keep excluded</button>
+  </div>
+</dialog>
 
 <script src="/static/demo-hr.js"></script>
 </body>

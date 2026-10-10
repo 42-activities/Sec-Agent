@@ -551,6 +551,7 @@ class HRContinueRequest(BaseModel):
     session_id: str
     include: list[str] = Field(default_factory=list)       # application ids the human keeps
     seconds: dict[str, float] = Field(default_factory=dict)  # per application: time to decide
+    acknowledged: list[str] = Field(default_factory=list)  # flagged ids included after the impact popup (client-reported)
 
 
 @app.post("/api/hr/continue")
@@ -569,8 +570,12 @@ def hr_continue(req: HRContinueRequest) -> StreamingResponse:
         if e["_id"] in flagged:
             verdict = "included anyway" if e["_id"] in keep else "excluded"
         secs = req.seconds.get(e["_id"])
-        audit.append(f"[human] {e['_id']} ({screening.candidate_name(e)}): {verdict}"
-                     + (f" after {secs:.1f} s" if secs is not None else ""))
+        who = f"[human] {e['_id']} ({screening.candidate_name(e)}): "
+        if verdict == "included anyway" and e["_id"] in req.acknowledged:
+            audit.append(who + "included anyway after flagged-content review"
+                         + (f" ({secs:.1f} s)" if secs is not None else ""))
+        else:
+            audit.append(who + verdict + (f" after {secs:.1f} s" if secs is not None else ""))
     merged["audit"] = audit
     merged["context_items"] = [i for i in merged.get("context_items", [])
                                if not i.id.startswith("email-") or i.id in keep]

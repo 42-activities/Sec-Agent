@@ -130,3 +130,13 @@ def test_candidate_name_from_the_first_line_of_a_cv():
 
 def test_gmail_source_requires_a_connection(client):
     assert client.post("/api/hr/run", json={"source": "gmail"}).status_code == 401
+
+
+def test_included_after_the_impact_explanation_is_audited_as_such(client):
+    ev = run(client, protection=True, source="sample", sample="poisoned", compromised=True)
+    sid = by_type(ev, "review")[0]["session_id"]
+    ev = cont(client, session_id=sid, include=["email-1", "email-2", "email-3"],
+              seconds={"email-3": 6.0}, acknowledged=["email-3"])
+    audit = by_type(ev, "done")[0]["audit"]
+    assert "[human] email-3 (Alex Morgan): included anyway after flagged-content review (6.0 s)" in audit
+    assert by_type(ev, "decision")[0]["final_decision"] == "DENY"   # the review does not bypass policy

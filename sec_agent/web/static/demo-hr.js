@@ -115,35 +115,88 @@ async function decide(pfx, approve, t0, bar) {
 }
 
 // ---------------- human review of flagged applications ----------------
+// "Exclude" is the default and applies at once (reversible until Continue). "Include anyway"
+// first opens an impact explanation; only "Include application" there changes the choice.
+// A flag is a security signal about the email's content, never a judgement of the applicant.
+const SIGNALS = [
+  [/^instruction aimed at an AI/, "Instructions directed at an AI system"],
+  [/^targets sensitive data/, "References to sensitive data such as credentials or keys"],
+  [/^asks to hide it from the user/, "Asks to keep something hidden from the recruiter"],
+  [/^hidden text/, "Hidden or obfuscated text detected"],
+  [/redirects data/, "Request to send data to another destination"],
+  [/^Jev risk/, "Prompt-injection classifier (Jev) rated the content as risky"],
+];
+const signalsOf = (reasons) => [...new Set((reasons || []).flatMap(r => SIGNALS.filter(([re]) => re.test(r)).map(([, l]) => l)))];
+
+const fill = (el, items) => { el.replaceChildren(...items.map(t => { const li = document.createElement("li"); li.textContent = t; return li; })); };
+
+function openIncludeExplanation(pfx, id, onConfirm, trigger) {
+  const st = runState[pfx], info = (st.screeningById || {})[id] || {};
+  const email = (st.emails || []).find(e => e.id === id) || {};
+  const dlg = $("incDialog");
+  $("incWho").textContent = email.candidate || id;
+  const sig = signalsOf(info.reasons);
+  fill($("incSignals"), sig.length ? sig : ["Suspicious content in an untrusted email"]);
+  fill($("incReasons"), info.reasons && info.reasons.length ? info.reasons : ["—"]);
+  $("incJev").textContent = info.jev_level != null
+    ? `${info.jev_level}/100 — a security signal about the email's content` : "not available";
+  let confirmed = false;
+  const yes = $("incYes"), no = $("incNo");
+  const onYes = () => { confirmed = true; dlg.close(); };
+  const onNo = () => dlg.close();
+  yes.addEventListener("click", onYes); no.addEventListener("click", onNo);
+  dlg.addEventListener("close", () => {          // also fires on Escape (cancel)
+    yes.removeEventListener("click", onYes); no.removeEventListener("click", onNo);
+    onConfirm(confirmed);
+    if (trigger && trigger.isConnected) trigger.focus();
+  }, { once: true });
+  dlg.showModal();
+}
+
 function renderReview(pfx, ev) {
   const st = runState[pfx];
-  st.choice = {}; st.seconds = {}; st.shownAt = performance.now();
+  st.choice = {}; st.seconds = {}; st.acknowledged = new Set(); st.shownAt = performance.now();
   st.emails.forEach(e => { st.choice[e.id] = !ev.flagged.includes(e.id); });   // clean = keep
   ev.flagged.forEach(id => {
     const cell = $(pfx + "-rs-" + id); if (!cell) return;
     const bar = document.createElement("div"); bar.className = "choice";
-    const mk = (label, keep) => {
-      const b = document.createElement("button"); b.type = "button"; b.textContent = label;
-      b.className = keep ? "ch-keep" : "ch-drop on";
-      b.addEventListener("click", (evt) => {
-        evt.stopPropagation();   // don't also toggle the row's CV preview
-        st.choice[id] = keep;
-        st.seconds[id] = Math.round((performance.now() - st.shownAt) / 100) / 10;
-        bar.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
-        timer.textContent = `decided in ${st.seconds[id].toFixed(1)} s`;
-      });
-      return b;
-    };
     const timer = document.createElement("span"); timer.className = "muted ch-time";
-    bar.append(mk("Exclude", false), mk("Include anyway", true), timer);
+    const note = document.createElement("span"); note.className = "muted ch-note";
+    const drop = document.createElement("button"), keep = document.createElement("button");
+    drop.type = keep.type = "button";
+    drop.textContent = "Exclude"; drop.className = "ch-drop on";
+    keep.textContent = "Include anyway"; keep.className = "ch-keep";
+    const show = () => {
+      drop.classList.toggle("on", !st.choice[id]); keep.classList.toggle("on", st.choice[id]);
+      note.textContent = st.choice[id]
+        ? "Included after review — the agent will see this application; its actions are still checked."
+        : "This application will not be provided to the agent.";
+      if (st.seconds[id] != null) timer.textContent = `decided in ${st.seconds[id].toFixed(1)} s`;
+    };
+    const stamp = () => { st.seconds[id] = Math.round((performance.now() - st.shownAt) / 100) / 10; };
+    drop.addEventListener("click", (evt) => {
+      evt.stopPropagation();   // don't also toggle the row's CV preview
+      st.choice[id] = false; st.acknowledged.delete(id); stamp(); show();
+    });
+    keep.addEventListener("click", (evt) => {
+      evt.stopPropagation();
+      if (st.choice[id]) return;
+      openIncludeExplanation(pfx, id, (ok) => {
+        stamp();               // time to a confirmed decision (either way)
+        if (ok) { st.choice[id] = true; st.acknowledged.add(id); }
+        show();
+      }, keep);
+    });
+    bar.append(drop, keep, timer, note);
     cell.appendChild(bar);
+    show();
   });
   const go = document.createElement("button"); go.type = "button"; go.className = "go-review";
   go.textContent = "Continue with my decisions";
   go.addEventListener("click", () => continueReview(pfx, go));
   const o = $(pfx + "-outcome"); o.classList.remove("hidden"); o.innerHTML = "";
   const note = document.createElement("div"); note.className = "muted";
-  note.textContent = "Flagged applications are held back. Excluded ones never reach the agent.";
+  note.textContent = "Flagged applications are held back by default. Excluded ones never reach the agent.";
   o.append(note, go);
 }
 
@@ -154,7 +207,8 @@ async function continueReview(pfx, btn) {
   const include = st.emails.filter(e => st.choice[e.id]).map(e => e.id);
   try {
     const r = await fetch("/api/hr/continue", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: st.session_id, include, seconds: st.seconds }) });
+      body: JSON.stringify({ session_id: st.session_id, include, seconds: st.seconds,
+                             acknowledged: [...(st.acknowledged || [])].filter(id => st.choice[id]) }) });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
     setSub(pfx, "running…");
     await readStream(r, ev => handle(pfx, ev));
@@ -179,7 +233,11 @@ function handle(pfx, ev) {
         addStep(pfx, `<span class="muted">input guard did not run — content unchecked</span>`);
         st.emails.forEach(e => setStatus(pfx, e.id, { unchecked: true }));
       } else {
-        (ev.emails || []).forEach(e => setStatus(pfx, e.id, { flagged: e.flagged, reasons: e.reasons }));
+        st.screeningById = {};
+        (ev.emails || []).forEach(e => {
+          st.screeningById[e.id] = { flagged: e.flagged, reasons: e.reasons || [], jev_level: e.jev_level };
+          setStatus(pfx, e.id, { flagged: e.flagged, reasons: e.reasons });
+        });
       }
       break;
     case "review":
