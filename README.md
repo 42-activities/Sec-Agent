@@ -599,9 +599,7 @@ Results stream in live; export as CSV or JSON. Batch runs are not added to the S
 **Accuracy evaluation.** Upload a CSV with the prompt in column 1 and a label in column 2
 (`1` = prompt injection, `0` = clean; header optional; comma-, semicolon- or tab-separated, Excel
 UTF-8 files fine; `1.0`/`0.0`, `true/false`, `yes/no` accepted — or paste `prompt,1` lines).
-Rows without a valid label are listed as not scored instead of hiding the comparison. If the labels are in another column or
-are words (`jailbreak` / `benign`, `injection` / `safe`, `unsafe`…), pick the **label column** after
-upload and tick which values mean injection — the comparison then works the same way.
+Rows without a valid label are listed as not scored instead of hiding the comparison.
 
 **Per-method comparison.** The evaluation also scores each detection method on its own against
 your labels — pattern matching, hidden text, Jev, the Sec-Agent verdict (any of the three) and,
