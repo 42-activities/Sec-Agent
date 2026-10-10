@@ -2,7 +2,8 @@
 #
 #   controller : web UI + input_guard + executor LLM + security LLM + policy engine.
 #                Holds the Bedrock token ONLY. No tool credentials.
-#                Reachable from the host on :8000. Has internet egress (for Bedrock).
+#                Reachable from the host on 127.0.0.1:${SEC_AGENT_PORT:-8700} only
+#                (put a reverse proxy in front for public access). Has internet egress (for Bedrock).
 #
 #   proxy      : the execution proxy + the real tools.
 #                Holds tool credentials ONLY. No Bedrock access.
@@ -39,11 +40,12 @@ services:
       - AWS_DEFAULT_REGION=${AWS_REGION:-us-west-2}
       - EXECUTOR_MODEL_ID=${EXECUTOR_MODEL_ID:-us.anthropic.claude-sonnet-4-5-20250929-v1:0}
       - SECURITY_MODEL_ID=${SECURITY_MODEL_ID:-us.anthropic.claude-haiku-4-5-20251001-v1:0}
+      - WEB_HOST=0.0.0.0   # bind all interfaces inside the container so the port mapping works
       - PROXY_URL=http://proxy:8001
       - PROXY_AUTH_TOKEN=${PROXY_AUTH_TOKEN:?set PROXY_AUTH_TOKEN in .env}
       # Intentionally NO tool credentials here.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:${SEC_AGENT_PORT:-8700}:8000"   # loopback only; 8000 avoided on this shared host
     networks:
       - internal   # to reach the proxy
       - edge        # to reach Bedrock

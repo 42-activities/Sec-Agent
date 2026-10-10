@@ -18,6 +18,11 @@ class Settings(BaseSettings):
 
     aws_region: str = "us-west-2"
 
+    # Web UI bind address. Loopback by default; the container sets WEB_HOST=0.0.0.0
+    # so Docker's port mapping can reach it.
+    web_host: str = "127.0.0.1"
+    web_port: int = 8000
+
     # Two-container split. When proxy_url is set, the controller forwards
     # authorized actions to the standalone proxy service instead of executing
     # in-process. proxy_auth_token is the shared secret between them.

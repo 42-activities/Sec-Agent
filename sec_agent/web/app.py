@@ -170,7 +170,7 @@ def run() -> None:
     """Entry point: `sec-web` (or `python -m sec_agent.web.app`)."""
     import uvicorn
 
-    uvicorn.run("sec_agent.web.app:app", host="127.0.0.1", port=8000, reload=False)
+    uvicorn.run("sec_agent.web.app:app", host=settings.web_host, port=settings.web_port, reload=False)
 
 
 if __name__ == "__main__":
