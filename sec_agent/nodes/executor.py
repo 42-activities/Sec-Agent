@@ -24,6 +24,8 @@ Available tools (you may only use these):
 - write_file(path, content): write a file
 - send_email(recipient, body): send an email
 - http_request(method, url, body): make an HTTP request
+- query_candidates_db(role, limit): the recruiting database of existing candidates.
+  Results already shown in your context (id candidates-db) do not need to be fetched again.
 - read_email(query, max_results): read the user's newest emails from their connected
   Gmail inbox (read-only). `query` is a Gmail search such as "from:acme newer_than:7d"
   or "" for the newest; max_results 1-10.

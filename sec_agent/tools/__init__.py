@@ -65,6 +65,14 @@ def read_email(query: str = "", max_results: int = 5, token: str = "") -> str:
     return json.dumps({"query": query, "emails": emails}, ensure_ascii=False)
 
 
+def query_candidates_db(role: str = "", limit: int = 20) -> str:
+    """The recruiting database of existing candidates (synthetic demo data). Read-only."""
+    from ..screening import CANDIDATES
+
+    rows = [c for c in CANDIDATES if not role or role.lower() in c["role"].lower()][:max(1, min(int(limit or 20), 50))]
+    return json.dumps({"candidates": rows}, ensure_ascii=False)
+
+
 REGISTRY: dict[str, Callable[..., str]] = {
     "respond_to_user": respond_to_user,
     "read_document": read_document,
@@ -73,6 +81,7 @@ REGISTRY: dict[str, Callable[..., str]] = {
     "send_email": send_email,
     "http_request": http_request,
     "read_email": read_email,
+    "query_candidates_db": query_candidates_db,
 }
 
 # Arguments the PROXY fills in from credentials it holds for the request. The agent may

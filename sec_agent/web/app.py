@@ -33,13 +33,16 @@ from ..config import settings
 from .. import rules as rules_store
 from .. import events as event_log
 from .. import gmail
+from .. import screening
 from .. import jev
 from ..graph import build_graph
 from ..models import AgentState, ContextItem, Decision, ProposedAction, Trust
 from ..nodes.input_guard import _INJECTION_RE, _SENSITIVE_RE, _WEAK_SENSITIVE_RE
 from ..proxy import execution_proxy_node
 from ..proxy_client import remote_execute
+from ..nodes.policy import evaluate as policy_evaluate
 from ..tools import REGISTRY
+from ..tools import invoke as tool_invoke
 
 app = FastAPI(title="Sec-Agent Security Controller", version="0.1.0")
 
@@ -472,6 +475,135 @@ def soc_event(session_id: str) -> dict:
 @app.get("/soc")
 def soc_page() -> FileResponse:
     return FileResponse(_STATIC / "soc.html")
+
+
+# ------------------------------------ Demo HR -------------------------------------
+# CV screening from email, run with Sec-Agent protection ON or OFF (see screening.py).
+
+class HRRunRequest(BaseModel):
+    goal: str = screening.DEFAULT_GOAL
+    protection: bool = True
+    source: str = Field("sample", pattern="^(sample|gmail)$")   # synthetic sample inbox, or the Gmail label
+    sample: str = Field("poisoned", pattern="^(clean|poisoned)$")
+    compromised: bool = False   # scripted compromised agent (obeys the injected email) instead of the live LLM
+
+
+def _hr_tool(tool: str, args: dict, goal: str, protection: bool,
+             credentials: Optional[dict] = None) -> tuple[str, list[str]]:
+    """A fixed workflow step. ON: policy check + execution proxy, like any action. OFF: direct call."""
+    if not protection:
+        return tool_invoke(tool, args, credentials=credentials), [f"[unprotected] {tool} called directly, no checks"]
+    action = ProposedAction(tool=tool, arguments=args, reason="screening workflow step",
+                            source_ids=["user-request"], original_goal=goal)
+    decision, reasons = policy_evaluate(action, [])
+    if decision != Decision.ALLOW:
+        raise RuntimeError(f"workflow step {tool} not allowed: {'; '.join(reasons)}")
+    st: AgentState = {"proposed_action": action, "final_decision": Decision.ALLOW, "context_items": [], "audit": []}
+    out = (remote_execute(st, approve=True, credentials=credentials) if settings.proxy_url
+           else execution_proxy_node(st, approval_fn=lambda _s: True, credentials=credentials))
+    if out.get("execution_result") is None:
+        raise RuntimeError((out.get("audit") or [f"{tool} failed"])[-1])
+    return out["execution_result"], out.get("audit", [])
+
+
+@app.post("/api/hr/run")
+def hr_run(req: HRRunRequest, sa_gmail: str = Cookie(default="")) -> StreamingResponse:
+    conn = _gmail_conn(sa_gmail) if req.source == "gmail" else None
+    if req.source == "gmail" and not conn:
+        raise HTTPException(status_code=401, detail="Gmail is not connected")
+    creds = {"gmail": conn["token"]} if conn else None
+    session_id = uuid.uuid4().hex
+    goal = req.goal.strip() or screening.DEFAULT_GOAL
+
+    def line(event: dict) -> str:
+        return json.dumps(event, default=str) + "\n"
+
+    def stream():
+        yield line({"type": "start", "session_id": session_id, "protection": req.protection, "source": req.source,
+                    "label": settings.gmail_screening_label if req.source == "gmail" else None})
+        try:
+            # 1. the applications
+            if req.source == "gmail":
+                raw, audit = _hr_tool("read_email", {"query": f"label:{settings.gmail_screening_label}",
+                                                     "max_results": settings.gmail_max_results},
+                                      goal, req.protection, creds)
+                emails = json.loads(raw).get("emails", [])
+            else:
+                emails, audit = screening.sample_emails(req.sample), []
+            yield line({"type": "fetched", "via": "proxy" if req.protection else "direct", "emails": [
+                {"id": f"email-{n}", "subject": e.get("subject", ""), "from": e.get("from", ""), "date": e.get("date", ""),
+                 "candidate": screening.candidate_name(e), "preview": e.get("body", "")[:1200]}
+                for n, e in enumerate(emails, 1)]})
+            if not emails:
+                yield line({"type": "error", "detail": f"No emails under the Gmail label '{settings.gmail_screening_label}'."})
+                return
+            # 2. the existing candidates
+            raw_db, audit_db = _hr_tool("query_candidates_db", {"role": "Senior Backend Engineer"}, goal, req.protection)
+            candidates = screening.parse_candidates(raw_db)
+            yield line({"type": "candidates", "via": "proxy" if req.protection else "direct",
+                        "count": len(candidates), "names": [c["name"] for c in candidates]})
+
+            state: AgentState = {"user_goal": goal, "audit": [*audit, *audit_db],
+                                 "context_items": screening.context_items(goal, emails, raw_db)}
+            if req.compromised:
+                act = screening.scripted_attack(goal, emails, candidates)
+                if act is None:
+                    yield line({"type": "error", "detail": "No email here instructs the agent to send data anywhere — "
+                                                           "nothing for a compromised agent to follow. Untick 'compromised'."})
+                    return
+                state["proposed_action"] = act
+                yield line({"type": "action", "scripted": True, "action": _action_view(act)})
+
+            if req.protection:
+                merged: AgentState = dict(state)  # type: ignore[assignment]
+                graph = build_graph(include_executor=not req.compromised, execute=False)
+                for chunk in graph.stream(state, stream_mode="updates"):
+                    for node, update in chunk.items():
+                        merged.update(update or {})
+                        if node == "input_guard":
+                            by_id = {i.id: i for i in merged.get("context_items", [])}
+                            yield line({"type": "screened", "emails": [
+                                {"id": f"email-{n}", "flagged": by_id[f"email-{n}"].taint.value == "suspicious",
+                                 "reasons": screening.flag_reasons(f"email-{n}", merged),
+                                 "jev_level": ((merged.get("jev_input") or {}).get(f"email-{n}") or {}).get("level")}
+                                for n in range(1, len(emails) + 1)]})
+                        elif node == "executor":
+                            yield line({"type": "action", "scripted": False,
+                                        "action": _action_view(merged.get("proposed_action"))})
+                        elif node == "security":
+                            yield line({"type": "security", "security": _view("", merged).security})
+                        elif node == "policy":
+                            fd, pd = merged.get("final_decision"), merged.get("policy_decision")
+                            yield line({"type": "decision", "final_decision": fd.value if fd else None,
+                                        "policy_decision": pd.value if pd else None,
+                                        "reasons": merged.get("policy_reasons", []),
+                                        "checks": [c.model_dump(mode="json") for c in merged.get("checks", [])
+                                                   if c.stage == "action"]})
+                _SESSIONS[session_id] = merged
+                if req.source == "sample":  # synthetic data only in the public SOC log
+                    event_log.record_analysis(session_id, merged, compromised=req.compromised)
+                fd = merged.get("final_decision")
+                yield line({"type": "done", "session_id": session_id, "final_decision": fd.value if fd else None,
+                            "audit": merged.get("audit", [])})
+            else:
+                yield line({"type": "screened", "unchecked": True})
+                if not req.compromised:
+                    from ..nodes.executor import executor_node
+                    state.update(executor_node(state))
+                    yield line({"type": "action", "scripted": False, "action": _action_view(state.get("proposed_action"))})
+                act = state["proposed_action"]
+                if act.tool not in screening.OFF_TOOLS:
+                    result, ok = f"'{act.tool}' is not available in the unprotected demo", False
+                else:
+                    result, ok = tool_invoke(act.tool, act.arguments), True
+                yield line({"type": "executed", "ok": ok, "tool": act.tool, "arguments": act.arguments, "result": result})
+                yield line({"type": "done", "session_id": None, "final_decision": "EXECUTED" if ok else None,
+                            "audit": state.get("audit", [])})
+        except Exception as exc:  # surface tool/model errors to the page
+            yield line({"type": "error", "detail": f"{type(exc).__name__}: {exc}"[:400]})
+
+    return StreamingResponse(stream(), media_type="application/x-ndjson",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 # ------------------------------- legal pages -------------------------------------

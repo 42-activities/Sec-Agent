@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     # Tools the agent is permitted to propose at all (least privilege).
     allowed_tools: list[str] = [
         "respond_to_user", "read_document", "read_file", "write_file", "send_email", "http_request",
-        "read_email",
+        "read_email", "query_candidates_db",
     ]
     # Consequential tools: if influenced by untrusted data, require human approval.
     consequential_tools: list[str] = ["send_email", "http_request", "write_file"]
@@ -84,6 +84,8 @@ class Settings(BaseSettings):
     public_url: str = ""
     gmail_max_results: int = 10      # per read_email call
     gmail_batch_max: int = 50        # per "load my inbox" on /batch
+    # Demo HR reads ONLY this Gmail label (the synthetic CV emails), never the rest of the inbox.
+    gmail_screening_label: str = "secagent-applications"
     gmail_body_chars: int = 8000     # body text kept per email
     # Contact shown on /privacy and /terms (empty = the GitHub issues page).
     contact_email: str = ""

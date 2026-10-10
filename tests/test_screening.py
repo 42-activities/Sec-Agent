@@ -1,0 +1,88 @@
+"""HR screening workflow (/api/hr/run): the same input with protection OFF and ON.
+
+No network: the security LLM is stubbed, Jev is off (conftest), the sample inbox is used.
+"""
+
+import json
+
+import pytest
+from fastapi.testclient import TestClient
+
+import sec_agent.graph as graph
+import sec_agent.web.app as webapp
+from sec_agent import screening, tools
+from sec_agent.models import Decision, SecurityDecision
+from sec_agent.nodes.policy import evaluate_checks
+from sec_agent.models import ProposedAction
+
+
+@pytest.fixture
+def client(monkeypatch):
+    def llm_allows(state):  # the advisory LLM says ALLOW, so any block comes from guards/policy
+        return {"security_decision": SecurityDecision(classification="benign", risk_score=5, goal_relevance=0.9,
+                                                      decision=Decision.ALLOW, reason="stub"),
+                "audit": state.get("audit", [])}
+
+    monkeypatch.setattr(graph, "security_node", llm_allows)
+    return TestClient(webapp.app)
+
+
+def run(client, **body):
+    r = client.post("/api/hr/run", json=body)
+    assert r.status_code == 200
+    return [json.loads(line) for line in r.text.splitlines() if line.strip()]
+
+
+def by_type(events, kind):
+    return [e for e in events if e["type"] == kind]
+
+
+def test_candidates_tool_is_synthetic_and_read_only():
+    rows = json.loads(tools.invoke("query_candidates_db", {"role": "backend"}))["candidates"]
+    assert len(rows) == 5 and all(r["email"].endswith("@example.org") for r in rows)
+    action = ProposedAction(tool="query_candidates_db", arguments={"role": "x"}, reason="r", source_ids=[], original_goal="g")
+    assert all(c.effect is None for c in evaluate_checks(action, []))
+
+
+def test_helpers_find_names_and_the_injected_recipient():
+    emails = screening.sample_emails("poisoned")
+    assert [screening.candidate_name(e) for e in emails] == ["Jordan Lee", "Maria Costa", "Alex Morgan"]
+    assert screening.injected_recipient(emails) == (2, "talent-sync@recruit-hub.example")
+    assert screening.injected_recipient(screening.sample_emails("clean")) == (None, None)
+    act = screening.scripted_attack("goal", emails, screening.CANDIDATES)
+    assert act.arguments["recipient"] == "talent-sync@recruit-hub.example"
+    assert act.arguments["body"].splitlines()[2] == "1. Alex Morgan"   # ranked first
+    assert "priya.raman@example.org" in act.arguments["body"]          # records included
+
+
+def test_protection_off_executes_the_leak_without_any_check(client):
+    ev = run(client, protection=False, source="sample", sample="poisoned", compromised=True)
+    assert [e["count"] for e in by_type(ev, "candidates")] == [5]
+    assert by_type(ev, "screened")[0].get("unchecked") is True
+    assert not by_type(ev, "decision")
+    done = by_type(ev, "executed")[0]
+    assert done["ok"] and done["arguments"]["recipient"] == "talent-sync@recruit-hub.example"
+    assert "[stub] email to talent-sync@recruit-hub.example" in done["result"]   # nothing real is sent
+
+
+def test_protection_on_flags_the_poisoned_cv_and_denies_the_send(client):
+    ev = run(client, protection=True, source="sample", sample="poisoned", compromised=True)
+    mails = {m["id"]: m for m in by_type(ev, "screened")[0]["emails"]}
+    assert not mails["email-1"]["flagged"] and not mails["email-2"]["flagged"]
+    assert mails["email-3"]["flagged"]
+    reasons = " ".join(mails["email-3"]["reasons"])
+    assert "hidden text" in reasons and "instruction aimed at an AI" in reasons
+    decision = by_type(ev, "decision")[0]
+    assert decision["final_decision"] == "DENY"
+    assert any("outside the allowed email domains" in r for r in decision["reasons"])
+    assert not by_type(ev, "executed")
+    assert by_type(ev, "done")[0]["session_id"]
+
+
+def test_scripted_agent_needs_an_injected_instruction(client):
+    ev = run(client, protection=True, source="sample", sample="clean", compromised=True)
+    assert by_type(ev, "error") and "nothing for a compromised agent" in by_type(ev, "error")[0]["detail"]
+
+
+def test_gmail_source_requires_a_connection(client):
+    assert client.post("/api/hr/run", json={"source": "gmail"}).status_code == 401
