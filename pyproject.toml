@@ -1,0 +1,31 @@
+[project]
+name = "sec-agent"
+version = "0.1.0"
+description = "AI Security Controller for LLM agents — a compromised agent must not become a compromised system."
+requires-python = ">=3.10"
+dependencies = [
+    "langchain-aws>=0.2.10",
+    "langchain-core>=0.3.0",
+    "langgraph>=0.2.0",
+    "boto3>=1.40.0",          # >=1.40 ships AWS_BEARER_TOKEN_BEDROCK support
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "python-dotenv>=1.0",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+web = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
+
+[project.scripts]
+sec-demo = "sec_agent.demo.poisoned_invoice:main"
+sec-web = "sec_agent.web.app:run"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["sec_agent*"]

@@ -4,7 +4,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current State
 
-This repository is pre-implementation. The only file committed so far is `README.md`. The sections below describe the **intended** design so future instances can build toward it. There are no build, lint, or test commands yet — add them to this file as the toolchain lands (the stack is expected to be Python + LangChain / LangGraph + Pydantic).
+PoC scaffolded and runnable. Stack: Python (>=3.10) + LangGraph + `langchain-aws` (Amazon Bedrock) + Pydantic. The full `input_guard → executor → security → policy → proxy` pipeline works end-to-end and the poisoned-invoice demo blocks credential exfiltration via both the security LLM and the deterministic policy engine.
+
+### Commands
+
+```bash
+python3 -m venv .venv && . .venv/bin/activate
+pip install -e ".[dev,web]"        # install package + dev + web deps
+
+pytest -q                          # offline tests (deterministic policy engine; no network)
+pytest tests/test_policy.py -q     # single test file
+python -m sec_agent.demo.poisoned_invoice   # live end-to-end demo (needs Bedrock creds)
+sec-web                            # or: python -m sec_agent.web.app  → http://127.0.0.1:8000
+```
+
+### Bedrock / credentials
+
+- Credentials come from the environment via `.env` (gitignored; copy from `env.example`). `sec_agent/config.py` calls `load_dotenv()` so boto3 sees `AWS_BEARER_TOKEN_BEDROCK`.
+- Hackathon auth is a **Bedrock API key** (bearer token, short-lived ~12h) in `AWS_BEARER_TOKEN_BEDROCK`, region `us-west-2`. Regenerate from the Bedrock console → API keys when it expires.
+- **Model IDs must be inference profiles** (`us.anthropic.*`); bare `anthropic.*` IDs fail on-demand with a ValidationException. List them: `aws bedrock list-inference-profiles --region us-west-2`.
+- Verified working: executor `us.anthropic.claude-sonnet-4-5-20250929-v1:0`, security `us.anthropic.claude-haiku-4-5-20251001-v1:0`. Override via `EXECUTOR_MODEL_ID` / `SECURITY_MODEL_ID`.
+
+### Layout
+
+`sec_agent/` — `config.py` (settings + denylist), `models.py` (Pydantic contracts + `AgentState`), `llm.py` (Bedrock model factories), `nodes/` (`input_guard`, `executor`, `security`, `policy`), `proxy.py` (execution proxy — only tool executor), `tools/` (the controlled tool set), `graph.py` (LangGraph wiring), `demo/`, `web/` (FastAPI app + static UI). Tests in `tests/`.
+
+`web/app.py` exposes the human-in-the-loop flow: `POST /analyze` runs the controller and **stops before execution** (graph built with `execute=False`), stashing state under a session id; `POST /execute` runs the proxy with the human's approve/deny. `build_graph(include_executor=, execute=)` controls both the compromised-executor simulation and the stop-before-execute behavior.
 
 ## Project Overview
 
