@@ -171,6 +171,10 @@ def record_execution(session_id: str, state: AgentState, approve: bool) -> None:
                 data["approval_seconds"] = round((now - datetime.fromisoformat(data["ts"])).total_seconds())
             result = state.get("execution_result")
             data["executed"] = result is not None
+            if result is not None:
+                from .tools import summarize  # never store mailbox content in the SOC log
+                action = state.get("proposed_action")
+                result = summarize(action.tool, result) if action else result
             data["outcome"] = _short(result if result is not None else (state.get("audit") or [""])[-1])
             data["audit"] = state.get("audit", [])
             db.execute("UPDATE events SET updated_at=?, data=? WHERE session_id=?",

@@ -106,6 +106,8 @@
       <button class="ghost" id="exampleBtn" type="button">Load labeled examples</button>
       <button class="ghost" id="sampleBtn" type="button">Download sample CSV</button>
       <label class="filebtn">Upload .csv / .txt / .jsonl<input type="file" id="file" accept=".txt,.csv,.jsonl,.json,.tsv" /></label>
+      <button class="ghost hidden" id="gmailBtn" type="button">Load my Gmail inbox</button>
+      <a class="filebtn hidden" id="gmailConnect" href="/auth/google/start?next=/batch" style="text-decoration:none">Connect Gmail (read-only)</a>
     </div>
     <textarea id="prompts" placeholder="Paste prompts, one per line — or prompt⇥label (tab-separated) to evaluate accuracy. Or upload a CSV."></textarea>
     <p class="hint" id="loadInfo" style="color:var(--text)"></p>
@@ -255,12 +257,14 @@ function parseCSV(text, sep = ",") {
 let loaded = null;
 function current() { return loaded ?? parseInput($("prompts").value); }
 const isLabeled = list => list.some(i => i.label === 0 || i.label === 1);
-function showLoaded(list, source) {
-  loaded = list; sourceName = source;
+let kind = "prompt";  // "email" = screened as untrusted emails (indirect injection), not as the user's own prompts
+function showLoaded(list, source, k = "prompt") {
+  loaded = list; sourceName = source; kind = k;
   const lab = list.filter(i => i.label != null).length;
   $("loadInfo").innerHTML = !list.length ? `<span style="color:var(--critical)">No prompts found in ${esc(source)}.</span>`
     : lab ? `Loaded <b>${list.length}</b> prompts from ${esc(source)} — <b style="color:var(--good)">${lab} labeled</b> (column 2 read as 1 = injection, 0 = clean)`
             + (lab < list.length ? `; <b>${list.length - lab}</b> rows have no 0/1 label and won't be scored.` : ". Results will be compared with your labels.")
+    : k === "email" ? `Loaded <b>${list.length}</b> emails from ${esc(source)} — each is screened as <b>untrusted content</b> (as if you asked the agent to summarize it). No labels, so no accuracy comparison.`
     : `Loaded <b>${list.length}</b> prompts from ${esc(source)} — <b>no 0/1 labels found</b> in column 2, so there is nothing to compare against.`
       + (source !== "examples" ? " Expected values 1/0 (or true/false, yes/no)." : "");
   $("prompts").value = list.map(i => i.prompt.replace(/\s*\n\s*/g, " ⏎ ")).join("\n");
@@ -276,12 +280,33 @@ function updateCount() {
   $("count").style.color = lab ? "var(--good)" : "";
   $("runBtn").disabled = !n || n > lim;
 }
-$("prompts").addEventListener("input", () => { loaded = null; sourceName = ""; $("loadInfo").textContent = ""; updateCount(); });
+$("prompts").addEventListener("input", () => { loaded = null; sourceName = ""; kind = "prompt"; $("loadInfo").textContent = ""; updateCount(); });
 $("useLlm").addEventListener("change", updateCount);
 $("prompts").addEventListener("focus", () => {
   if ($("prompts").readOnly && confirm("Edit the loaded prompts as plain lines? (The labels from the file would be lost.)")) {
-    $("prompts").readOnly = false; loaded = null; $("prompts").value = ""; updateCount();
+    $("prompts").readOnly = false; loaded = null; kind = "prompt"; $("prompts").value = ""; updateCount();
   }
+});
+(async () => {
+  try {
+    const s = await (await fetch("/api/gmail/status")).json();
+    $("gmailBtn").classList.toggle("hidden", !s.connected);
+    $("gmailConnect").classList.toggle("hidden", !s.configured || s.connected);
+    if (s.connected) $("gmailBtn").title = `Your newest emails from ${s.email || "Gmail"} (read-only)`;
+  } catch {}
+  if (/[?&]gmail=/.test(location.search)) history.replaceState(null, "", location.pathname);
+})();
+$("gmailBtn").addEventListener("click", async () => {
+  const q = prompt("Gmail search (empty = newest emails), e.g. newer_than:7d or from:someone@example.com", "");
+  if (q === null) return;
+  $("gmailBtn").disabled = true; $("loadInfo").textContent = "Reading your inbox…";
+  try {
+    const r = await fetch(`/api/gmail/messages?n=50&q=${encodeURIComponent(q)}`);
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+    const { emails } = await r.json();
+    showLoaded(emails.map(m => ({ prompt: m.text, label: null })), `Gmail${q ? ` (“${q}”)` : ""}`, "email");
+  } catch (err) { $("loadInfo").textContent = "Could not read Gmail: " + err.message; }
+  finally { $("gmailBtn").disabled = false; }
 });
 $("exampleBtn").addEventListener("click", () => showLoaded(EXAMPLES.map(([prompt, label]) => ({ prompt, label })), "examples"));
 $("sampleBtn").addEventListener("click", () => download("sample-prompts.csv",
@@ -447,7 +472,7 @@ async function run() {
   $("prog").style.width = "0"; kpis(); renderEval(); renderRows();
   try {
     const r = await fetch("/api/batch", { method: "POST", headers: { "Content-Type": "application/json" },
-                                          body: JSON.stringify({ prompts: list.map(i => i.prompt), mode, llm: runLlm }) });
+                                          body: JSON.stringify({ prompts: list.map(i => i.prompt), mode, llm: runLlm, kind }) });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
     const reader = r.body.getReader(), dec = new TextDecoder(); let buf = "", pending = 0;
     const flush = () => { kpis(); renderEval(); renderRows(); pending = 0; };

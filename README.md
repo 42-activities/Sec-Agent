@@ -615,6 +615,33 @@ last line. Labels never leave the browser.
 
 ---
 
+# Gmail (read-only, your own inbox)
+
+Visitors can click **Connect Gmail (read-only)** on the Controller page and sign in with Google
+(OAuth, scope `gmail.readonly`, access token only — no refresh token, expires within the hour).
+Each visitor connects **their own** mailbox; nobody else can read it.
+
+- **`read_email(query, max_results)` agent tool.** "Summarize my inbox" makes the executor propose
+  `read_email`; the controller checks it like any action and only the **execution proxy** calls
+  the Gmail API. The proxy injects the user's token itself — the agent can neither see nor pass
+  it (`invoke` refuses a `token` argument and policy T8 flags it).
+- **Emails are untrusted.** The emails read are shown to the user, not acted on. *Check this
+  email with Sec-Agent* feeds one back in as an untrusted `email` document, so the input guard
+  (patterns, hidden text incl. HTML comments, Jev) scans it before the agent may act on it.
+  The **Poisoned email** scenario shows the result without Gmail: a hidden instruction to forward
+  mail is blocked by the destination rule (T3).
+- **Batch-screen the inbox.** On `/batch`, *Load my Gmail inbox* (optionally a Gmail search)
+  loads up to 50 emails and screens each one as untrusted content (indirect injection).
+- **Privacy.** Tokens live only in the controller's memory and are passed to the proxy per call.
+  Mail content never goes into the audit trail or the SOC log (only "N emails, M chars").
+  Email text is sent to Bedrock and Jev when it is checked. Disconnect revokes the grant.
+
+Setup: Google Cloud console → enable the **Gmail API** → OAuth consent screen (External; while in
+*Testing*, add every Google account that may sign in as a test user — `gmail.readonly` is a
+restricted scope, so a public launch needs Google's verification) → create an OAuth client of type
+*Web application* with redirect URI `https://<host>/auth/google/callback` → set the variable
+`GOOGLE_CLIENT_ID` and the secret `GOOGLE_CLIENT_SECRET` (`PUBLIC_URL` defaults to the live site).
+
 # SOC dashboard
 
 [`/soc`](https://sec-agent.naurzalinov.me/soc) is a security-operations view of every decision:
@@ -664,7 +691,7 @@ flow through Input → Sec-Agent input guard → Executor LLM → Sec-Agent outp
 Local:
 
 ```bash
-cp env.example .env                 # Bedrock API key + PROXY_AUTH_TOKEN; optional TYPESAFE_API_KEY (Jev), RULES_ADMIN_TOKEN
+cp env.example .env                 # Bedrock API key + PROXY_AUTH_TOKEN; optional TYPESAFE_API_KEY (Jev), RULES_ADMIN_TOKEN, GOOGLE_CLIENT_ID/SECRET (Gmail)
 python3 -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev,web]"
 pytest -q                           # offline tests

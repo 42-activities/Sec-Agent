@@ -34,6 +34,9 @@ jobs:
         PROXY_AUTH_TOKEN=${{ secrets.PROXY_AUTH_TOKEN }}
         RULES_ADMIN_TOKEN=${{ secrets.RULES_ADMIN_TOKEN }}
         TYPESAFE_API_KEY=${{ secrets.TYPESAFE_API_KEY }}
+        GOOGLE_CLIENT_ID=${{ vars.GOOGLE_CLIENT_ID }}
+        GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
+        PUBLIC_URL=${{ vars.PUBLIC_URL || 'https://sec-agent.naurzalinov.me' }}
         AWS_REGION=${{ vars.AWS_REGION || 'us-west-2' }}
         AWS_DEFAULT_REGION=${{ vars.AWS_REGION || 'us-west-2' }}
         EXECUTOR_MODEL_ID=${{ vars.EXECUTOR_MODEL_ID || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0' }}

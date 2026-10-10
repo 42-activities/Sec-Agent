@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import requests
 
+from typing import Optional
+
 from .config import settings
 from .models import AgentState, Decision, Trust
 
@@ -23,7 +25,8 @@ def _referenced_documents(state: AgentState) -> dict[str, str]:
             if i.id == ref and i.trust != Trust.TRUSTED}
 
 
-def remote_execute(state: AgentState, approve: bool = False) -> AgentState:
+def remote_execute(state: AgentState, approve: bool = False,
+                   credentials: Optional[dict[str, str]] = None) -> AgentState:
     action = state.get("proposed_action")
     final = state.get("final_decision")
     audit = list(state.get("audit", []))
@@ -46,6 +49,8 @@ def remote_execute(state: AgentState, approve: bool = False) -> AgentState:
         "approve": approve,
         "claimed_decision": final.value,
         "documents": _referenced_documents(state),
+        # Only the credential this tool needs (the user's Gmail token for read_email).
+        "credentials": {k: v for k, v in (credentials or {}).items() if k == "gmail" and action.tool == "read_email"},
     }
     try:
         resp = requests.post(

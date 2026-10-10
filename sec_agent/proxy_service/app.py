@@ -20,7 +20,7 @@ from ..config import settings
 from ..models import ContextItem, Decision, ProposedAction, Taint, Trust
 from ..nodes.policy import evaluate
 from .. import rules as rules_store
-from ..tools import REGISTRY, invoke
+from ..tools import REGISTRY, invoke, summarize
 
 app = FastAPI(title="Sec-Agent Execution Proxy", version="0.1.0")
 
@@ -41,6 +41,9 @@ class ExecuteActionRequest(BaseModel):
     claimed_decision: str = "ALLOW"
     # Pasted document content, only for a read_document call that names it by ID.
     documents: dict[str, str] = Field(default_factory=dict)
+    # Per-user credentials for this one call (``gmail`` -> the user's read-only access token).
+    # Used, never stored or logged.
+    credentials: dict[str, str] = Field(default_factory=dict)
 
 
 class ExecuteActionResponse(BaseModel):
@@ -138,14 +141,14 @@ def execute_action(
         )
 
     try:
-        result = invoke(req.action.tool, req.action.arguments, req.documents)
+        result = invoke(req.action.tool, req.action.arguments, req.documents, req.credentials)
     except Exception as exc:  # report, never silently drop
         audit.append(f"[proxy-service] tool '{req.action.tool}' errored: {exc}")
         return ExecuteActionResponse(
             executed=False, proxy_decision=decision.value, audit=audit
         )
 
-    audit.append(f"[proxy-service] EXECUTED {req.action.tool} -> {result}")
+    audit.append(f"[proxy-service] EXECUTED {req.action.tool} -> {summarize(req.action.tool, result)}")
     return ExecuteActionResponse(
         executed=True, result=result, proxy_decision=decision.value, audit=audit
     )

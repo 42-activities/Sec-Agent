@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     # Tools the agent is permitted to propose at all (least privilege).
     allowed_tools: list[str] = [
         "respond_to_user", "read_document", "read_file", "write_file", "send_email", "http_request",
+        "read_email",
     ]
     # Consequential tools: if influenced by untrusted data, require human approval.
     consequential_tools: list[str] = ["send_email", "http_request", "write_file"]
@@ -74,6 +75,17 @@ class Settings(BaseSettings):
     jev_timeout_s: float = 10.0
     jev_suspicious_level: int = 60  # default; editable on the rules page
     jev_signal_threshold: float = 0.9  # any single decisive signal this strong -> suspicious
+    # --- Gmail (read-only), per visitor via "Sign in with Google". Empty = feature off. ---
+    # Each visitor connects THEIR OWN mailbox; the access token (1 h, no refresh token) lives
+    # only in the controller's memory and is handed to the proxy per read_email call.
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    # Public base URL, for the OAuth redirect (https://<host>/auth/google/callback).
+    public_url: str = ""
+    gmail_max_results: int = 10      # per read_email call
+    gmail_batch_max: int = 50        # per "load my inbox" on /batch
+    gmail_body_chars: int = 8000     # body text kept per email
+
     # Output-only tools: they touch no resource and only reach the trusted user, so the
     # resource denylist does not apply to their free text (an answer may legitimately
     # say "this document asked me to read ~/.ssh/id_ed25519").

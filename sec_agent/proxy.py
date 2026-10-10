@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Callable, Optional
 
 from .models import AgentState, Decision, Trust
-from .tools import REGISTRY, invoke
+from .tools import REGISTRY, invoke, summarize
 
 # A human-approval callback: given the state, return True to proceed. Default
 # denies (fail-closed). The demo/CLI can inject an interactive prompt.
@@ -22,7 +22,8 @@ def _deny_by_default(_: AgentState) -> bool:
 
 
 def execution_proxy_node(
-    state: AgentState, approval_fn: Optional[ApprovalFn] = None
+    state: AgentState, approval_fn: Optional[ApprovalFn] = None,
+    credentials: Optional[dict[str, str]] = None,
 ) -> AgentState:
     approval_fn = approval_fn or _deny_by_default
     final = state.get("final_decision")
@@ -51,10 +52,10 @@ def execution_proxy_node(
     documents = {i.id: i.content for i in state.get("context_items", [])
                  if i.trust != Trust.TRUSTED}
     try:
-        result = invoke(action.tool, action.arguments, documents)
+        result = invoke(action.tool, action.arguments, documents, credentials)
     except Exception as exc:  # tool errors are reported, never silently dropped
         audit.append(f"[proxy] tool '{action.tool}' errored: {exc}")
         return {"execution_result": None, "audit": audit}
 
-    audit.append(f"[proxy] EXECUTED {action.tool} -> {result}")
+    audit.append(f"[proxy] EXECUTED {action.tool} -> {summarize(action.tool, result)}")
     return {"execution_result": result, "audit": audit}

@@ -63,7 +63,22 @@ def llm_classify(prompt: str) -> dict:
             "reason": v.reason[:240], "ms": round((time.perf_counter() - t0) * 1000)}
 
 
-def _state(prompt: str) -> AgentState:
+EMAIL_GOAL = "Summarize this email for me."
+
+
+def _state(prompt: str, kind: str = "prompt") -> AgentState:
+    if kind == "email":
+        # Indirect injection: the user asks for a summary; the email is untrusted content.
+        return {
+            "user_goal": EMAIL_GOAL,
+            "context_items": [
+                ContextItem(id="user-request", source="batch", source_type="user_message",
+                            content=EMAIL_GOAL, trust=Trust.TRUSTED),
+                ContextItem(id="email-1", source="gmail", source_type="email", content=prompt,
+                            trust=Trust.UNTRUSTED),
+            ],
+            "audit": [],
+        }
     return {
         "user_goal": prompt,
         "context_items": [ContextItem(id="user-request", source="batch", source_type="user_message",
@@ -103,7 +118,7 @@ def explain(injection: bool, found: dict, jev: dict, tool: str | None, final: st
 
 
 def _summary(index: int, prompt: str, state: AgentState, ms: int, llm: dict | None = None) -> dict:
-    item = state["context_items"][0]
+    item = state["context_items"][-1]  # the scanned item: the prompt, or the email
     jev = (state.get("jev_input") or {}).get(item.id) or {}
     checks = state.get("checks") or state.get("input_checks") or []
     flagged = [f"{c.id} {c.criterion}" for c in checks
@@ -152,10 +167,10 @@ def _summary(index: int, prompt: str, state: AgentState, ms: int, llm: dict | No
     }
 
 
-def _run_one(index: int, prompt: str, mode: str, use_llm: bool = False) -> dict:
+def _run_one(index: int, prompt: str, mode: str, use_llm: bool = False, kind: str = "prompt") -> dict:
     t0 = time.perf_counter()
     try:
-        state = _state(prompt)
+        state = _state(prompt, kind)
         if mode == "full":
             state = build_graph(include_executor=True, execute=False).invoke(state)
         else:
@@ -167,9 +182,9 @@ def _run_one(index: int, prompt: str, mode: str, use_llm: bool = False) -> dict:
                 "error": f"{type(exc).__name__}: {exc}"[:300], "ms": round((time.perf_counter() - t0) * 1000)}
 
 
-def run(prompts: list[str], mode: str, use_llm: bool = False) -> Iterator[dict]:
+def run(prompts: list[str], mode: str, use_llm: bool = False, kind: str = "prompt") -> Iterator[dict]:
     """Yield one result per prompt, in input order (``index`` keeps position)."""
     with ThreadPoolExecutor(max_workers=WORKERS[mode]) as pool:
-        futures = [pool.submit(_run_one, i, p, mode, use_llm) for i, p in enumerate(prompts)]
+        futures = [pool.submit(_run_one, i, p, mode, use_llm, kind) for i, p in enumerate(prompts)]
         for f in futures:  # in submission order, so progress reads top-down
             yield f.result()

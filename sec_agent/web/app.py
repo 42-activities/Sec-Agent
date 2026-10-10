@@ -17,19 +17,22 @@ anything without a final ALLOW (or an APPROVAL the human approves).
 from __future__ import annotations
 
 import json
+import secrets
+import threading
 import time
 import uuid
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import Cookie, FastAPI, Header, HTTPException, Request
+from fastapi.responses import FileResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from ..config import settings
 from .. import rules as rules_store
 from .. import events as event_log
+from .. import gmail
 from .. import jev
 from ..graph import build_graph
 from ..models import AgentState, ContextItem, Decision, ProposedAction, Trust
@@ -52,6 +55,7 @@ class AnalyzeRequest(BaseModel):
     user_goal: str = Field(..., description="The user's actual request.")
     document: str = Field("", description="Untrusted document / webpage / RAG content.")
     document_source: str = "uploaded_document"
+    document_type: str = Field("document", pattern="^(document|email|webpage)$")
     # Simulate a compromised executor that already proposed a specific action.
     force_tool: Optional[str] = None
     force_arguments: dict[str, Any] = Field(default_factory=dict)
@@ -86,7 +90,7 @@ def _build_state(req: AnalyzeRequest) -> AgentState:
         items.append(
             ContextItem(
                 id="document-1", source=req.document_source,
-                source_type="document", content=req.document, trust=Trust.UNTRUSTED,
+                source_type=req.document_type, content=req.document, trust=Trust.UNTRUSTED,
             )
         )
     return {"user_goal": req.user_goal, "context_items": items, "audit": []}
@@ -231,21 +235,124 @@ def analyze_stream(req: AnalyzeRequest) -> StreamingResponse:
 
 
 @app.post("/execute", response_model=DecisionView)
-def execute(req: ExecuteRequest) -> DecisionView:
+def execute(req: ExecuteRequest, sa_gmail: str = Cookie(default="")) -> DecisionView:
     state = _SESSIONS.get(req.session_id)
     if state is None:
         raise HTTPException(status_code=404, detail="unknown or expired session")
 
+    # The user's own Gmail token, only for read_email. It is never in the agent's state.
+    action = state.get("proposed_action")
+    conn = _gmail_conn(sa_gmail) if action is not None and action.tool == "read_email" else None
+    credentials = {"gmail": conn["token"]} if conn else None
     if settings.proxy_url:
         # Two-container mode: forward to the isolated proxy service.
-        updated = remote_execute(state, approve=req.approve)
+        updated = remote_execute(state, approve=req.approve, credentials=credentials)
     else:
         # Single-process mode: execute in-process.
-        updated = execution_proxy_node(state, approval_fn=lambda _s: req.approve)
+        updated = execution_proxy_node(state, approval_fn=lambda _s: req.approve, credentials=credentials)
     merged: AgentState = {**state, **updated}
     _SESSIONS[req.session_id] = merged
     event_log.record_execution(req.session_id, merged, req.approve)
     return _view(req.session_id, merged)
+
+
+# ------------------------------------ Gmail --------------------------------------
+# Each visitor signs in with Google and connects their own mailbox, read-only. The access
+# token stays in this process's memory (keyed by a random HttpOnly cookie) and expires
+# with Google's token (~1 h); there is no refresh token. Redeploy = everyone reconnects.
+
+_GMAIL: dict[str, dict] = {}
+_GMAIL_LOCK = threading.Lock()
+_COOKIE, _STATE_COOKIE = "sa_gmail", "sa_oauth_state"
+
+
+def _gmail_conn(sid: str) -> Optional[dict]:
+    with _GMAIL_LOCK:
+        conn = _GMAIL.get(sid or "")
+        if conn and conn["expires"] <= time.time():
+            _GMAIL.pop(sid, None)
+            return None
+        return conn
+
+
+def _base_url(request: Request) -> str:
+    # Behind nginx the app sees http://127.0.0.1; prefer the configured public URL.
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    return settings.public_url or f"{proto}://{request.headers.get('host', request.url.netloc)}"
+
+
+def _secure(request: Request) -> bool:
+    return _base_url(request).startswith("https://")
+
+
+@app.get("/api/gmail/status")
+def gmail_status(sa_gmail: str = Cookie(default="")) -> dict:
+    conn = _gmail_conn(sa_gmail)
+    return {"configured": gmail.enabled(), "connected": bool(conn),
+            "email": conn["email"] if conn else None,
+            "expires_in": round(conn["expires"] - time.time()) if conn else None}
+
+
+@app.get("/auth/google/start")
+def gmail_start(request: Request, next: str = "/") -> Response:
+    if not gmail.enabled():
+        raise HTTPException(status_code=404, detail="Gmail is not configured on this server")
+    state = secrets.token_urlsafe(24)
+    page = "batch" if next == "/batch" else "home"  # where to land afterwards (cookie-safe word)
+    resp = RedirectResponse(gmail.auth_url(gmail.redirect_uri(_base_url(request)), state), status_code=302)
+    resp.set_cookie(_STATE_COOKIE, f"{state}.{page}", max_age=600, httponly=True, samesite="lax",
+                    secure=_secure(request), path="/auth/google")
+    return resp
+
+
+@app.get("/auth/google/callback")
+def gmail_callback(request: Request, state: str = "", code: str = "", error: str = "",
+                   sa_oauth_state: str = Cookie(default="")) -> Response:
+    expected, _, page = sa_oauth_state.partition(".")
+    if not expected or not secrets.compare_digest(expected, state):  # CSRF: must be our own sign-in
+        raise HTTPException(status_code=400, detail="sign-in expired or not started here — try again")
+    nxt = "/batch" if page == "batch" else "/"
+    if error or not code:
+        resp = RedirectResponse(f"{nxt}?gmail=denied", status_code=302)
+    else:
+        try:
+            tok = gmail.exchange(code, gmail.redirect_uri(_base_url(request)))
+        except gmail.GmailError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        sid = secrets.token_urlsafe(32)
+        with _GMAIL_LOCK:
+            _GMAIL[sid] = {"token": tok["access_token"], "email": tok["email"],
+                           "expires": time.time() + tok["expires_in"] - 60}
+        resp = RedirectResponse(f"{nxt}?gmail=connected", status_code=302)
+        resp.set_cookie(_COOKIE, sid, max_age=tok["expires_in"], httponly=True, samesite="lax",
+                        secure=_secure(request))
+    resp.delete_cookie(_STATE_COOKIE, path="/auth/google")
+    return resp
+
+
+@app.post("/auth/google/logout")
+def gmail_logout(sa_gmail: str = Cookie(default="")) -> Response:
+    with _GMAIL_LOCK:
+        conn = _GMAIL.pop(sa_gmail or "", None)
+    if conn:
+        gmail.revoke(conn["token"])  # also withdraw the grant at Google
+    resp = Response(status_code=204)
+    resp.delete_cookie(_COOKIE)
+    return resp
+
+
+@app.get("/api/gmail/messages")
+def gmail_messages(q: str = "", n: int = 25, sa_gmail: str = Cookie(default="")) -> dict:
+    """The user loading their own inbox as INPUT for /batch (like uploading a file) — not an
+    agent action, so it does not go through the proxy. Nothing is stored server-side."""
+    conn = _gmail_conn(sa_gmail)
+    if not conn:
+        raise HTTPException(status_code=401, detail="Gmail is not connected")
+    try:
+        emails = gmail.list_messages(conn["token"], q, n, limit=settings.gmail_batch_max)
+    except gmail.GmailError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    return {"emails": [{**e, "text": gmail.as_text(e)} for e in emails]}
 
 
 # ------------------------------------ rules --------------------------------------
@@ -304,6 +411,9 @@ class BatchRequest(BaseModel):
     prompts: list[str]
     mode: str = Field("input", pattern="^(input|full)$")
     llm: bool = False  # also ask the LLM to classify each prompt (for comparison)
+    # "prompt" = the user's own request (direct injection); "email" = untrusted content the
+    # user received (indirect injection), scanned as a document.
+    kind: str = Field("prompt", pattern="^(prompt|email)$")
 
 
 @app.post("/api/batch")
@@ -322,8 +432,8 @@ def batch_run(req: BatchRequest) -> StreamingResponse:
 
     def stream():
         yield json.dumps({"type": "start", "total": len(prompts), "mode": req.mode, "jev": jev.enabled(),
-                          "llm": req.llm}) + "\n"
-        for result in batch.run(prompts, req.mode, req.llm):
+                          "llm": req.llm, "kind": req.kind}) + "\n"
+        for result in batch.run(prompts, req.mode, req.llm, req.kind):
             yield json.dumps({"type": "result", **result}, default=str) + "\n"
         yield json.dumps({"type": "done"}) + "\n"
 

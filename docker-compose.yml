@@ -6,8 +6,9 @@
 #                (put a reverse proxy in front for public access). Has internet egress (for Bedrock).
 #
 #   proxy      : the execution proxy + the real tools.
-#                Holds tool credentials ONLY. No Bedrock access.
-#                Internal network only — NO host port, NO internet egress.
+#                Holds tool credentials ONLY. No Bedrock access. NO host port.
+#                Egress only via the `tools` network, which read_email needs to reach the
+#                Gmail API (the tool code calls gmail.googleapis.com and nothing else).
 #                Re-authorizes every action with the deterministic policy engine.
 #
 # Values come from a gitignored .env in this directory:
@@ -33,6 +34,7 @@ services:
       - rules-data:/data
     networks:
       - internal
+      - tools   # egress for real tools: read_email -> gmail.googleapis.com
     # No `ports:` — the proxy is unreachable from the host by design.
 
   controller:
@@ -53,6 +55,11 @@ services:
       - EVENTS_DB=/data/events.db   # SOC event log, on the volume below
       - PROXY_URL=http://proxy:8001
       - PROXY_AUTH_TOKEN=${PROXY_AUTH_TOKEN:?set PROXY_AUTH_TOKEN in .env}
+      # "Sign in with Google" (Gmail read-only, per visitor). Empty = feature off. Visitors'
+      # access tokens live only in this process's memory and are passed to the proxy per call.
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - PUBLIC_URL=${PUBLIC_URL:-}
       # Intentionally NO tool credentials here.
     volumes:
       - events-data:/data
@@ -64,8 +71,9 @@ services:
 
 networks:
   internal:
-    internal: true   # no external connectivity: the proxy cannot egress
-  edge:              # normal bridge with internet, for the controller -> Bedrock
+    internal: true   # no external connectivity; controller <-> proxy only
+  edge:              # normal bridge with internet, for the controller -> Bedrock / TypeSafe / Google sign-in
+  tools:             # normal bridge with internet, for the proxy's real tools (Gmail API)
 
 volumes:
   rules-data:

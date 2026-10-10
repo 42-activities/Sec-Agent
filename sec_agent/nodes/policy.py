@@ -84,7 +84,7 @@ def influence(action: ProposedAction, items: list[ContextItem]) -> tuple[bool, s
 
 
 def _expected_args(tool: str) -> tuple[set[str], set[str]] | None:
-    from ..tools import REGISTRY
+    from ..tools import INJECTED_ARGS, REGISTRY
 
     fn = REGISTRY.get(tool)
     if fn is None:
@@ -94,7 +94,8 @@ def _expected_args(tool: str) -> tuple[set[str], set[str]] | None:
     required = {p.name for p in params if p.default is p.empty and p.kind not in (p.VAR_KEYWORD, p.VAR_POSITIONAL)}
     if tool == "read_document":
         named.add("document_id")
-    return named, required
+    injected = INJECTED_ARGS.get(tool, set())  # filled in by the proxy, never by the agent
+    return named - injected, required - injected
 
 
 def evaluate_checks(action: ProposedAction, items: list[ContextItem], rules: Rules | None = None) -> list[Check]:
