@@ -23,9 +23,11 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from ..config import settings
 from ..graph import build_graph
 from ..models import AgentState, ContextItem, Decision, ProposedAction, Trust
 from ..proxy import execution_proxy_node
+from ..proxy_client import remote_execute
 
 app = FastAPI(title="Sec-Agent Security Controller", version="0.1.0")
 
@@ -145,7 +147,12 @@ def execute(req: ExecuteRequest) -> DecisionView:
     if state is None:
         raise HTTPException(status_code=404, detail="unknown or expired session")
 
-    updated = execution_proxy_node(state, approval_fn=lambda _s: req.approve)
+    if settings.proxy_url:
+        # Two-container mode: forward to the isolated proxy service.
+        updated = remote_execute(state, approve=req.approve)
+    else:
+        # Single-process mode: execute in-process.
+        updated = execution_proxy_node(state, approval_fn=lambda _s: req.approve)
     merged: AgentState = {**state, **updated}
     _SESSIONS[req.session_id] = merged
     return _view(req.session_id, merged)

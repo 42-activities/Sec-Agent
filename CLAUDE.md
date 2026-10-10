@@ -15,7 +15,14 @@ pip install -e ".[dev,web]"        # install package + dev + web deps
 pytest -q                          # offline tests (deterministic policy engine; no network)
 pytest tests/test_policy.py -q     # single test file
 python -m sec_agent.demo.poisoned_invoice   # live end-to-end demo (needs Bedrock creds)
-sec-web                            # or: python -m sec_agent.web.app  → http://127.0.0.1:8000
+sec-web                            # single-process web UI → http://127.0.0.1:8000
+sec-proxy                          # standalone execution-proxy service (:8001)
+```
+
+Two-container deployment (privilege separation; needs `.env` with `PROXY_AUTH_TOKEN` + Bedrock creds):
+
+```bash
+docker compose up --build          # controller :8000 (host) + proxy (internal only)
 ```
 
 ### Bedrock / credentials
@@ -30,6 +37,15 @@ sec-web                            # or: python -m sec_agent.web.app  → http:/
 `sec_agent/` — `config.py` (settings + denylist), `models.py` (Pydantic contracts + `AgentState`), `llm.py` (Bedrock model factories), `nodes/` (`input_guard`, `executor`, `security`, `policy`), `proxy.py` (execution proxy — only tool executor), `tools/` (the controlled tool set), `graph.py` (LangGraph wiring), `demo/`, `web/` (FastAPI app + static UI). Tests in `tests/`.
 
 `web/app.py` exposes the human-in-the-loop flow: `POST /analyze` runs the controller and **stops before execution** (graph built with `execute=False`), stashing state under a session id; `POST /execute` runs the proxy with the human's approve/deny. `build_graph(include_executor=, execute=)` controls both the compromised-executor simulation and the stop-before-execute behavior.
+
+### Two-container security split
+
+`docker-compose.yml` runs two containers from one image (`Dockerfile`), separated by **credentials and network**, which turns the "no executor→tool bypass" invariant into a hard boundary:
+
+- **controller** (`sec-web`, :8000, host-exposed): web UI + input_guard + executor LLM + security LLM + policy engine. Holds the **Bedrock token only**; has internet egress (for Bedrock). When `PROXY_URL` is set, `/execute` forwards to the proxy via `sec_agent/proxy_client.py` instead of executing in-process.
+- **proxy** (`sec-proxy`, :8001, `sec_agent/proxy_service/`): the execution proxy + real tools. Holds **tool credentials only**, **no Bedrock access**, on an `internal: true` network (no host port, no internet egress).
+
+The proxy service is **zero-trust toward the controller**: `POST /execute-action` ignores the caller's claimed decision and independently re-runs `policy.evaluate()`, refusing any DENY (and any APPROVAL without approval). A compromised controller therefore still cannot reach a denied resource. Services authenticate with the shared `PROXY_AUTH_TOKEN`.
 
 ## Project Overview
 

@@ -21,6 +21,7 @@ web = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
 [project.scripts]
 sec-demo = "sec_agent.demo.poisoned_invoice:main"
 sec-web = "sec_agent.web.app:run"
+sec-proxy = "sec_agent.proxy_service.app:run"
 
 [build-system]
 requires = ["setuptools>=68"]

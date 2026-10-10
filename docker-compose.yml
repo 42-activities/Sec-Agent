@@ -1,0 +1,54 @@
+# Two-container security split.
+#
+#   controller : web UI + input_guard + executor LLM + security LLM + policy engine.
+#                Holds the Bedrock token ONLY. No tool credentials.
+#                Reachable from the host on :8000. Has internet egress (for Bedrock).
+#
+#   proxy      : the execution proxy + the real tools.
+#                Holds tool credentials ONLY. No Bedrock access.
+#                Internal network only — NO host port, NO internet egress.
+#                Re-authorizes every action with the deterministic policy engine.
+#
+# Values come from a gitignored .env in this directory:
+#   PROXY_AUTH_TOKEN         shared secret between the two services (generate a random one)
+#   AWS_BEARER_TOKEN_BEDROCK Bedrock API key (controller only)
+#   AWS_REGION, EXECUTOR_MODEL_ID, SECURITY_MODEL_ID  (optional; defaults below)
+
+services:
+  proxy:
+    build: .
+    image: sec-agent
+    command: sec-proxy
+    environment:
+      - PROXY_AUTH_TOKEN=${PROXY_AUTH_TOKEN:?set PROXY_AUTH_TOKEN in .env}
+      # Intentionally NO AWS_BEARER_TOKEN_BEDROCK here — the proxy must not reach a model.
+      # Real tool credentials (e.g. SES) would be injected ONLY here.
+    networks:
+      - internal
+    # No `ports:` — the proxy is unreachable from the host by design.
+
+  controller:
+    build: .
+    image: sec-agent
+    command: sec-web
+    depends_on:
+      - proxy
+    environment:
+      - AWS_BEARER_TOKEN_BEDROCK=${AWS_BEARER_TOKEN_BEDROCK:?set AWS_BEARER_TOKEN_BEDROCK in .env}
+      - AWS_REGION=${AWS_REGION:-us-west-2}
+      - AWS_DEFAULT_REGION=${AWS_REGION:-us-west-2}
+      - EXECUTOR_MODEL_ID=${EXECUTOR_MODEL_ID:-us.anthropic.claude-sonnet-4-5-20250929-v1:0}
+      - SECURITY_MODEL_ID=${SECURITY_MODEL_ID:-us.anthropic.claude-haiku-4-5-20251001-v1:0}
+      - PROXY_URL=http://proxy:8001
+      - PROXY_AUTH_TOKEN=${PROXY_AUTH_TOKEN:?set PROXY_AUTH_TOKEN in .env}
+      # Intentionally NO tool credentials here.
+    ports:
+      - "8000:8000"
+    networks:
+      - internal   # to reach the proxy
+      - edge        # to reach Bedrock
+
+networks:
+  internal:
+    internal: true   # no external connectivity: the proxy cannot egress
+  edge:              # normal bridge with internet, for the controller -> Bedrock

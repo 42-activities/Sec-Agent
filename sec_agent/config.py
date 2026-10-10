@@ -18,6 +18,12 @@ class Settings(BaseSettings):
 
     aws_region: str = "us-west-2"
 
+    # Two-container split. When proxy_url is set, the controller forwards
+    # authorized actions to the standalone proxy service instead of executing
+    # in-process. proxy_auth_token is the shared secret between them.
+    proxy_url: str = ""          # e.g. http://proxy:8001
+    proxy_auth_token: str = ""   # shared bearer secret; required by the proxy service
+
     # Executor = capable worker model. Security = cheaper, INDEPENDENT reviewer.
     # Must be inference-profile IDs ("us.anthropic.*") — bare IDs fail on-demand.
     executor_model_id: str = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
