@@ -72,6 +72,7 @@ class Settings(BaseSettings):
     jev_model: str = ""             # empty = the SDK's default model
     jev_timeout_s: float = 10.0
     jev_suspicious_level: int = 60  # default; editable on the rules page
+    jev_signal_threshold: float = 0.9  # any single decisive signal this strong -> suspicious
     # Output-only tools: they touch no resource and only reach the trusted user, so the
     # resource denylist does not apply to their free text (an answer may legitimately
     # say "this document asked me to read ~/.ssh/id_ed25519").

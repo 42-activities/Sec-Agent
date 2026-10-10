@@ -63,8 +63,19 @@ def _questions() -> dict:
     }
 
 
-def scan_untrusted(content: str, source_type: str, suspicious_level: int) -> dict:
-    """Rate one untrusted context item. Returns a JSON-friendly result dict."""
+# Signals strong enough on their own to mark content suspicious. "pressure" is left out:
+# urgency is common in ordinary business mail, so it informs but never decides.
+DECISIVE_SIGNALS = ("ai_instructions", "redirect", "secrets")
+
+
+def scan_untrusted(content: str, source_type: str, suspicious_level: int,
+                   signal_threshold: float = 0.9) -> dict:
+    """Rate one untrusted context item. Returns a JSON-friendly result dict.
+
+    Suspicious if the overall level reaches ``suspicious_level`` OR any decisive signal
+    reaches ``signal_threshold`` — so a borderline, low-confidence level (e.g. 60 at
+    confidence 0.25) doesn't hide a near-certain "redirects money" signal.
+    """
     state = {"source_type": source_type, "content": content[:_MAX_STATE_CHARS]}
     t0 = time.perf_counter()
     try:
@@ -75,11 +86,18 @@ def scan_untrusted(content: str, source_type: str, suspicious_level: int) -> dic
     a = resp.answers
     risk = a["risk"]
     level = int(round(risk.score)) * 20  # 0..5 -> 0..100
+    signals = {k: round(a[k].noul, 3) for k in ("ai_instructions", "redirect", "secrets", "pressure")}
+    reasons = []
+    if level >= suspicious_level:
+        reasons.append(f"risk {level} ≥ {suspicious_level}")
+    reasons += [f"{k} {signals[k]:.2f} ≥ {signal_threshold}" for k in DECISIVE_SIGNALS
+                if signals[k] >= signal_threshold]
     return {
         "status": "ok", "ms": ms, "model": resp.model,
         "level": level,
         "confidence": round(risk.confidence, 3),
         "distribution": {int(k) * 20: round(v, 3) for k, v in risk.probabilities.items()},
-        "signals": {k: round(a[k].noul, 3) for k in ("ai_instructions", "redirect", "secrets", "pressure")},
-        "suspicious": level >= suspicious_level,
+        "signals": signals,
+        "suspicious": bool(reasons),
+        "reasons": reasons,
     }

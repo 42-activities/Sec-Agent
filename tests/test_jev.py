@@ -83,3 +83,15 @@ def test_api_failure_falls_back_to_regex(monkeypatch):
     out = input_guard_node(_state())
     assert out["jev_input"]["document-1"]["status"] == "error"
     assert any("unavailable" in line for line in out["audit"])
+
+
+def test_strong_single_signal_marks_suspicious_at_borderline_level(monkeypatch):
+    # Live Jev scored the bank-details fraud 60/100 at confidence 0.25 but redirect=0.98.
+    _use(monkeypatch, FakeClient(risk_index=1, signals={"redirect": 0.98, "pressure": 0.73}))  # level 20
+    r = jev.scan_untrusted("x", "document", suspicious_level=60, signal_threshold=0.9)
+    assert r["suspicious"] and r["reasons"] == ["redirect 0.98 ≥ 0.9"]
+
+
+def test_pressure_alone_never_marks_suspicious(monkeypatch):
+    _use(monkeypatch, FakeClient(risk_index=0, signals={"pressure": 0.99}))
+    assert jev.scan_untrusted("x", "document", 60, 0.9)["suspicious"] is False

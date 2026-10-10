@@ -39,6 +39,8 @@ class Rules(BaseModel):
     # Jev risk level (0/20/.../100) at which untrusted content is marked suspicious.
     # Has a default so rule files saved before this field existed still load.
     jev_suspicious_level: int = Field(default=60, ge=0, le=100, multiple_of=20)
+    # A single decisive Jev signal (AI instructions / redirect / secrets) at or above this.
+    jev_signal_threshold: float = Field(default=0.9, ge=0.5, le=1.0)
     updated_at: Optional[str] = Field(default=None, description="Set on every save.")
 
     @field_validator("allowed_tools", "denied_path_substrings", "output_only_tools",
@@ -77,6 +79,7 @@ def defaults() -> Rules:
         approval_required_tools=settings.approval_required_tools,
         consequential_tools=settings.consequential_tools,
         jev_suspicious_level=settings.jev_suspicious_level,
+        jev_signal_threshold=settings.jev_signal_threshold,
     )
 
 

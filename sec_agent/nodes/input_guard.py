@@ -84,16 +84,17 @@ def input_guard_node(state: AgentState) -> AgentState:
     jev_input: dict = {}
     untrusted = [i for i in items if i.trust != Trust.TRUSTED]
     if jev.enabled() and untrusted:
-        level = active().jev_suspicious_level
+        rules = active()
         with ThreadPoolExecutor(max_workers=min(4, len(untrusted))) as pool:
-            results = list(pool.map(lambda i: jev.scan_untrusted(i.content, i.source_type, level), untrusted))
+            results = list(pool.map(lambda i: jev.scan_untrusted(
+                i.content, i.source_type, rules.jev_suspicious_level, rules.jev_signal_threshold), untrusted))
         jev_input = {i.id: r for i, r in zip(untrusted, results)}
         items = [_apply_jev(i, jev_input[i.id]) if i.id in jev_input else i for i in items]
         for item_id, r in jev_input.items():
             if r["status"] == "ok":
                 audit.append(f"[jev] {item_id}: prompt-injection risk {r['level']}/100 "
                              f"(confidence {r['confidence']:.2f}, {r['ms']} ms) signals={r['signals']}"
-                             + (" -> SUSPICIOUS" if r["suspicious"] else ""))
+                             + (f" -> SUSPICIOUS ({'; '.join(r['reasons'])})" if r["suspicious"] else ""))
             else:
                 audit.append(f"[jev] {item_id}: unavailable ({r['error']}) — regex guard only")
 

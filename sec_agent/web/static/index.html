@@ -432,7 +432,7 @@ function jevDetail(i) {
   const sig = Object.entries(j.signals).map(([k, v]) =>
     `<span class="tag ${v >= 0.5 ? "red" : ""}">${esc(SIGNAL_LABEL[k] || k)} ${(v * 100).toFixed(0)}%</span>`).join("");
   return `<br><b>Jev</b> (${esc(j.model)}, ${j.ms} ms) rates <b>${esc(i.id)}</b> prompt-injection risk
-    <b style="color:${jevColor(j.level)}">${j.level}/100</b> (confidence ${(j.confidence * 100).toFixed(0)}%)${j.suspicious ? ' <span class="tag red">marked suspicious</span>' : ""}
+    <b style="color:${jevColor(j.level)}">${j.level}/100</b> (confidence ${(j.confidence * 100).toFixed(0)}%)${j.suspicious ? ` <span class="tag red">marked suspicious: ${esc((j.reasons || []).join("; "))}</span>` : ""}
     <br>Signals: ${sig}`;
 }
 
