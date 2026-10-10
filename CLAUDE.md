@@ -22,7 +22,7 @@ sec-proxy                          # standalone execution-proxy service (:8001)
 Two-container deployment (privilege separation; needs `.env` with `PROXY_AUTH_TOKEN` + Bedrock creds):
 
 ```bash
-docker compose up --build          # controller :8000 (host) + proxy (internal only)
+docker compose up --build          # controller → 127.0.0.1:8700 (SEC_AGENT_PORT) + proxy (internal only)
 ```
 
 ### Bedrock / credentials
@@ -36,16 +36,27 @@ docker compose up --build          # controller :8000 (host) + proxy (internal o
 
 `sec_agent/` — `config.py` (settings + denylist), `models.py` (Pydantic contracts + `AgentState`), `llm.py` (Bedrock model factories), `nodes/` (`input_guard`, `executor`, `security`, `policy`), `proxy.py` (execution proxy — only tool executor), `tools/` (the controlled tool set), `graph.py` (LangGraph wiring), `demo/`, `web/` (FastAPI app + static UI). Tests in `tests/`.
 
-`web/app.py` exposes the human-in-the-loop flow: `POST /analyze` runs the controller and **stops before execution** (graph built with `execute=False`), stashing state under a session id; `POST /execute` runs the proxy with the human's approve/deny. `build_graph(include_executor=, execute=)` controls both the compromised-executor simulation and the stop-before-execute behavior.
+`web/app.py` exposes the human-in-the-loop flow: `POST /analyze` runs the controller and **stops before execution** (graph built with `execute=False`), stashing state under a session id; `POST /execute` runs the proxy with the human's approve/deny. `POST /analyze/stream` is the same run but emits one NDJSON event per graph node (`graph.stream(stream_mode="updates")`) — the UI (`web/static/index.html`) uses it to animate Input → input guard → executor → output guard → proxy live. It sets `X-Accel-Buffering: no` so nginx doesn't buffer it. `GET /health` is used by the deploy health check. `build_graph(include_executor=, execute=)` controls both the compromised-executor simulation and the stop-before-execute behavior.
 
 ### Two-container security split
 
 `docker-compose.yml` runs two containers from one image (`Dockerfile`), separated by **credentials and network**, which turns the "no executor→tool bypass" invariant into a hard boundary:
 
-- **controller** (`sec-web`, :8000, host-exposed): web UI + input_guard + executor LLM + security LLM + policy engine. Holds the **Bedrock token only**; has internet egress (for Bedrock). When `PROXY_URL` is set, `/execute` forwards to the proxy via `sec_agent/proxy_client.py` instead of executing in-process.
+- **controller** (`sec-web`, :8000 in-container, published on `127.0.0.1:8700` only; `WEB_HOST=0.0.0.0` inside the container): web UI + input_guard + executor LLM + security LLM + policy engine. Holds the **Bedrock token only**; has internet egress (for Bedrock). When `PROXY_URL` is set, `/execute` forwards to the proxy via `sec_agent/proxy_client.py` instead of executing in-process.
 - **proxy** (`sec-proxy`, :8001, `sec_agent/proxy_service/`): the execution proxy + real tools. Holds **tool credentials only**, **no Bedrock access**, on an `internal: true` network (no host port, no internet egress).
 
 The proxy service is **zero-trust toward the controller**: `POST /execute-action` ignores the caller's claimed decision and independently re-runs `policy.evaluate()`, refusing any DENY (and any APPROVAL without approval). A compromised controller therefore still cannot reach a denied resource. Services authenticate with the shared `PROXY_AUTH_TOKEN`.
+
+### Deployment & CI/CD
+
+- Live at **https://sec-agent.naurzalinov.me** (Hetzner arm64 host). Host nginx (`deploy/sec-agent.naurzalinov.me`, TLS via certbot) proxies to `127.0.0.1:8700`. The app has no auth of its own.
+- `.github/workflows/pipeline.yml`: on push to `main` → `ci.yml` (pytest) → `docker-deploy.yml` builds `ghcr.io/42-activities/sec-agent-app:<sha>` for arm64, SSHes to the server, pulls, `docker compose up`, checks `/health`, rolls back on failure. PRs only test + build. Same pattern as LegoBot.
+- **The server's `.env` is rewritten on every deploy** from GitHub secrets (`AWS_BEARER_TOKEN_BEDROCK`, `PROXY_AUTH_TOKEN`) and variables (`AWS_REGION`, `EXECUTOR_MODEL_ID`, `SECURITY_MODEL_ID`). Never edit `.env` on the server; rotate the Bedrock key with `gh secret set AWS_BEARER_TOKEN_BEDROCK && gh workflow run pipeline.yml`.
+- Deploy aborts if the server checkout (`~/projects/Sec-Agent`) has uncommitted changes to tracked files.
+
+### Known issues
+
+- `read_document(path)` reads from disk, but the executor passes context IDs like `"document-1"`, so executing it fails. Pasted documents should be resolved by ID (also in the two-container proxy).
 
 ## Project Overview
 

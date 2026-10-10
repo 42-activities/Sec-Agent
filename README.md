@@ -566,3 +566,29 @@ External System
 The main agent cannot bypass the controller or directly access protected tools.
 
 That separation is the central security boundary of the project.
+
+---
+
+# Running it
+
+Live demo: **https://sec-agent.naurzalinov.me** — paste a poisoned document and watch the request flow through
+Input → Sec-Agent input guard → Executor LLM → Sec-Agent output guard → Execution proxy in real time.
+
+Local:
+
+```bash
+cp env.example .env                 # add a Bedrock API key + PROXY_AUTH_TOKEN
+python3 -m venv .venv && . .venv/bin/activate
+pip install -e ".[dev,web]"
+pytest -q                           # offline tests
+sec-web                             # http://127.0.0.1:8000
+```
+
+Two isolated containers (controller holds only the Bedrock key; proxy holds only tool credentials and has no internet):
+
+```bash
+docker compose up --build           # http://127.0.0.1:8700
+```
+
+Every push to `main` is tested, built into `ghcr.io/42-activities/sec-agent-app`, and deployed by GitHub Actions
+(`.github/workflows/pipeline.yml`). Runtime configuration comes from the repository's Actions secrets and variables.
