@@ -92,6 +92,7 @@
       <label class="filebtn">Upload .csv / .txt / .jsonl<input type="file" id="file" accept=".txt,.csv,.jsonl,.json,.tsv" /></label>
     </div>
     <textarea id="prompts" placeholder="Paste prompts, one per line — or prompt⇥label (tab-separated) to evaluate accuracy. Or upload a CSV."></textarea>
+    <p class="hint" id="loadInfo" style="color:var(--text)"></p>
     <p class="hint"><b>Evaluate accuracy:</b> upload a CSV with the prompt in column 1 and the label in column 2
       (<code>1</code> = prompt injection, <code>0</code> = clean; a header row is optional). The tool adds a predicted
       <code>1/0</code> and an explanation for every row, compares them, and reports TP / FP / TN / FN, accuracy, precision and recall.</p>
@@ -170,10 +171,11 @@ let mode = "input", items = [], results = [], filter = "all", total = 0, runLabe
 
 // ---------- parsing: items are {prompt, label} where label is 0, 1 or null ----------
 function toLabel(v) {
-  const s = String(v ?? "").trim().toLowerCase();
-  if (["1", "true", "yes", "y", "injection", "malicious"].includes(s)) return 1;
-  if (["0", "false", "no", "n", "clean", "benign"].includes(s)) return 0;
-  return null;
+  const s = String(v ?? "").trim().replace(/^"|"$/g, "").trim().toLowerCase();
+  if (["1", "true", "yes", "y", "injection", "malicious", "attack"].includes(s)) return 1;
+  if (["0", "false", "no", "n", "clean", "benign", "safe"].includes(s)) return 0;
+  const n = Number(s.replace(",", "."));            // 1.0, 0.0, "1,0" (European decimal)
+  return n === 1 ? 1 : n === 0 && s !== "" ? 0 : null;
 }
 const LABEL_HEADERS = ["label", "is_injection", "injection", "target", "y", "class", "malicious"];
 const PROMPT_HEADERS = ["prompt", "text", "input"];
@@ -185,8 +187,9 @@ function parseInput(text, name = "") {
       : { prompt: r.prompt ?? r.text ?? r.input ?? "", label: toLabel(LABEL_HEADERS.map(k => r[k]).find(v => v != null)) })
       .filter(r => r.prompt);
   }
+  text = text.replace(/^\uFEFF/, "");               // Excel "CSV UTF-8" byte-order mark
   if (name.endsWith(".csv") || name.endsWith(".tsv")) {
-    const rows = parseCSV(text, name.endsWith(".tsv") ? "\t" : ",").filter(r => r.some(c => c.trim()));
+    const rows = parseCSV(text, name.endsWith(".tsv") ? "\t" : sniffDelimiter(text)).filter(r => r.some(c => c.trim()));
     if (!rows.length) return [];
     const head = rows[0].map(h => h.trim().toLowerCase());
     let pc = PROMPT_HEADERS.map(h => head.indexOf(h)).find(i => i >= 0);
@@ -197,11 +200,19 @@ function parseInput(text, name = "") {
     return rows.slice(hasHeader ? 1 : 0).map(r => ({ prompt: r[pc] ?? "", label: lc == null ? null : toLabel(r[lc]) }))
                .filter(r => r.prompt.trim());
   }
-  // Plain text: one per line; "prompt<TAB>0/1" lines carry a label.
-  return text.split(/\r?\n/).filter(l => l.trim()).map(l => {
-    const m = l.match(/^(.*)\t\s*([01])\s*$/);
-    return m ? { prompt: m[1], label: +m[2] } : { prompt: l, label: null };
+  // Pasted text: one prompt per line; a trailing ",1" / ";0" / "<TAB>1" is the label.
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length && /^\s*"?(prompt|text|input)"?\s*[,;\t]\s*"?(label|is_injection|injection|target|y|class)"?\s*$/i.test(lines[0])) lines.shift();
+  return lines.map(l => {
+    const m = l.match(/^(.*?)\s*[,;\t]\s*"?(0|1|0\.0|1\.0)"?\s*$/);
+    const p = m ? m[1].trim().replace(/^"(.*)"$/s, "$1").replace(/""/g, '"') : l;
+    return m ? { prompt: p, label: toLabel(m[2]) } : { prompt: l, label: null };
   });
+}
+// Excel writes ";" in many locales; pick the delimiter that splits the first line the most.
+function sniffDelimiter(text) {
+  const first = text.split(/\r?\n/, 1)[0].replace(/"[^"]*"/g, "");
+  return [",", ";", "\t", "|"].map(d => [d, first.split(d).length]).sort((a, b) => b[1] - a[1])[0][0];
 }
 function parseCSV(text, sep = ",") {
   const rows = []; let row = [], cell = "", q = false;
@@ -220,9 +231,15 @@ function parseCSV(text, sep = ",") {
 // Items loaded from a file/examples are kept as a list (prompts may contain newlines / labels).
 let loaded = null;
 function current() { return loaded ?? parseInput($("prompts").value); }
-const isLabeled = list => list.length > 0 && list.every(i => i.label === 0 || i.label === 1);
+const isLabeled = list => list.some(i => i.label === 0 || i.label === 1);
 function showLoaded(list, source) {
   loaded = list;
+  const lab = list.filter(i => i.label != null).length;
+  $("loadInfo").innerHTML = !list.length ? `<span style="color:var(--critical)">No prompts found in ${esc(source)}.</span>`
+    : lab ? `Loaded <b>${list.length}</b> prompts from ${esc(source)} — <b style="color:var(--good)">${lab} labeled</b> (column 2 read as 1 = injection, 0 = clean)`
+            + (lab < list.length ? `; <b>${list.length - lab}</b> rows have no 0/1 label and won't be scored.` : ". Results will be compared with your labels.")
+    : `Loaded <b>${list.length}</b> prompts from ${esc(source)} — <b>no 0/1 labels found</b> in column 2, so there is nothing to compare against.`
+      + (source !== "examples" ? " Expected values 1/0 (or true/false, yes/no)." : "");
   $("prompts").value = list.map(i => (i.label == null ? "" : `[${i.label}] `) + i.prompt.replace(/\s*\n\s*/g, " ⏎ ")).join("\n");
   $("prompts").readOnly = true; $("prompts").title = `Loaded from ${source} — click to edit as plain lines`;
   updateCount();
@@ -230,11 +247,13 @@ function showLoaded(list, source) {
 function updateCount() {
   const list = current(), n = list.length, lim = mode === "full" ? 25 : 1000;
   const lab = list.filter(i => i.label != null).length;
-  $("count").textContent = `${n} prompt${n === 1 ? "" : "s"}` + (lab ? ` · ${lab} labeled` : "")
-    + (lab && lab < n ? " (label every row to evaluate)" : "") + (n > lim ? ` — limit ${lim} in this mode` : "");
+  $("count").textContent = `${n} prompt${n === 1 ? "" : "s"}` + (lab ? ` · ${lab} with a 0/1 label → accuracy will be compared` : "")
+    + (lab && lab < n ? ` (${n - lab} without a valid label are skipped in the comparison)` : "")
+    + (n > lim ? ` — limit ${lim} in this mode` : "");
+  $("count").style.color = lab ? "var(--good)" : "";
   $("runBtn").disabled = !n || n > lim;
 }
-$("prompts").addEventListener("input", () => { loaded = null; updateCount(); });
+$("prompts").addEventListener("input", () => { loaded = null; $("loadInfo").textContent = ""; updateCount(); });
 $("prompts").addEventListener("focus", () => {
   if ($("prompts").readOnly && confirm("Edit the loaded prompts as plain lines? (Labels written as [0]/[1] would be lost.)")) {
     $("prompts").readOnly = false; loaded = null; $("prompts").value = ""; updateCount();
@@ -257,10 +276,11 @@ document.querySelectorAll("#filter button").forEach(b => b.addEventListener("cli
 }));
 
 // ---------- evaluation ----------
-const labeledRun = () => runLabels.length > 0 && runLabels.every(l => l === 0 || l === 1);
+const labeledRun = () => runLabels.some(l => l === 0 || l === 1);
 function outcome(r) {
   if (!labeledRun() || r.error) return null;
   const y = runLabels[r.index], p = r.predicted;
+  if (y !== 0 && y !== 1) return null;           // row had no valid label — not scored
   return y ? (p ? "TP" : "FN") : (p ? "FP" : "TN");
 }
 const pct = (a, b) => b ? `${(a / b * 100).toFixed(1)}%` : "—";
@@ -287,10 +307,12 @@ function renderEval() {
     + tile("Recall", f(m.recall), "injections that were caught")
     + tile("F1 score", m.f1 == null ? "—" : m.f1.toFixed(3), "balance of both")
     + tile("False-positive rate", f(m.fpr), "clean prompts flagged");
-  $("evalText").innerHTML = !m.N ? "" :
+  const skipped = results.filter(r => !r.error && outcome(r) == null).length;
+  $("evalText").innerHTML = (skipped ? `<span class="muted">${skipped} row${skipped === 1 ? "" : "s"} without a valid 0/1 label ${skipped === 1 ? "was" : "were"} not scored.</span><br>` : "")
+    + (!m.N ? "" :
     `Sec-Agent classified <b>${m.TP + m.TN} of ${m.N}</b> prompts correctly (${f(m.accuracy)}). It caught <b>${m.TP} of ${m.TP + m.FN}</b> injections`
     + `${m.FN ? ` and missed <b>${m.FN}</b>` : ""}; <b>${m.FP} of ${m.FP + m.TN}</b> clean prompts were wrongly flagged.`
-    + (m.FP + m.FN ? ` Use the <b>Mistakes</b> filter to review them.` : "");
+    + (m.FP + m.FN ? ` Use the <b>Mistakes</b> filter to review them.` : ""));
 }
 
 // ---------- results ----------
@@ -318,7 +340,7 @@ function renderRows() {
   $("rows").innerHTML = shown.map(r => { const o = outcome(r); return `<tr class="r" data-i="${r.index}">
       <td class="muted">${r.index + 1}</td>
       <td class="p">${esc(r.prompt)}${r.chars > 300 ? '<span class="muted">…</span>' : ""}</td>
-      <td class="labonly ${lab ? "" : "hidden"}">${lab ? runLabels[r.index] : ""}</td>
+      <td class="labonly ${lab ? "" : "hidden"}">${lab ? (runLabels[r.index] ?? '<span class="muted">—</span>') : ""}</td>
       <td><span class="pill p-${verdict(r)}">${{INJ: "1 · INJECTION", CLEAN: "0 · CLEAN", ERR: "ERROR"}[verdict(r)]}</span></td>
       <td class="labonly ${lab ? "" : "hidden"}">${o ? `<span class="oc oc-${o}">${o}</span>` : ""}</td>
       <td class="ex">${esc(r.error || r.explanation)}</td>

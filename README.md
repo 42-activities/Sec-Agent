@@ -597,7 +597,9 @@ request** (direct prompt injection / jailbreak screening):
 Results stream in live; export as CSV or JSON. Batch runs are not added to the SOC dashboard.
 
 **Accuracy evaluation.** Upload a CSV with the prompt in column 1 and a label in column 2
-(`1` = prompt injection, `0` = clean; header optional). Sec-Agent adds a predicted `1`/`0` and a
+(`1` = prompt injection, `0` = clean; header optional; comma-, semicolon- or tab-separated, Excel
+UTF-8 files fine; `1.0`/`0.0`, `true/false`, `yes/no` accepted — or paste `prompt,1` lines).
+Rows without a valid label are listed as not scored instead of hiding the comparison. Sec-Agent adds a predicted `1`/`0` and a
 one-line explanation per row, marks each row TP / FP / TN / FN, and reports a confusion matrix,
 accuracy, precision, recall, F1 and false-positive rate. The exported CSV keeps your two columns
 first, then `predicted` and `explanation`, then the outcome and details, with the summary as the
