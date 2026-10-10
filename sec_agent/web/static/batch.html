@@ -139,7 +139,7 @@
         </div>
       </div>
       <div class="tblwrap"><table>
-        <thead><tr><th>#</th><th>Prompt</th><th class="labonly">Label</th><th>Predicted</th><th class="labonly">Outcome</th><th>Explanation</th><th>Jev risk</th><th class="fullcol">Agent → decision</th><th>Time</th></tr></thead>
+        <thead><tr><th>#</th><th>Prompt</th><th class="labonly">Label</th><th>Verdict</th><th class="labonly">Outcome</th><th>Explanation</th><th>Jev risk</th><th>Caught by</th><th>Flagged checks</th><th class="fullcol">Agent → decision</th><th>Time</th></tr></thead>
         <tbody id="rows"></tbody>
       </table></div>
     </div>
@@ -240,7 +240,7 @@ function showLoaded(list, source) {
             + (lab < list.length ? `; <b>${list.length - lab}</b> rows have no 0/1 label and won't be scored.` : ". Results will be compared with your labels.")
     : `Loaded <b>${list.length}</b> prompts from ${esc(source)} — <b>no 0/1 labels found</b> in column 2, so there is nothing to compare against.`
       + (source !== "examples" ? " Expected values 1/0 (or true/false, yes/no)." : "");
-  $("prompts").value = list.map(i => (i.label == null ? "" : `[${i.label}] `) + i.prompt.replace(/\s*\n\s*/g, " ⏎ ")).join("\n");
+  $("prompts").value = list.map(i => i.prompt.replace(/\s*\n\s*/g, " ⏎ ")).join("\n");
   $("prompts").readOnly = true; $("prompts").title = `Loaded from ${source} — click to edit as plain lines`;
   updateCount();
 }
@@ -255,7 +255,7 @@ function updateCount() {
 }
 $("prompts").addEventListener("input", () => { loaded = null; $("loadInfo").textContent = ""; updateCount(); });
 $("prompts").addEventListener("focus", () => {
-  if ($("prompts").readOnly && confirm("Edit the loaded prompts as plain lines? (Labels written as [0]/[1] would be lost.)")) {
+  if ($("prompts").readOnly && confirm("Edit the loaded prompts as plain lines? (The labels from the file would be lost.)")) {
     $("prompts").readOnly = false; loaded = null; $("prompts").value = ""; updateCount();
   }
 });
@@ -341,14 +341,16 @@ function renderRows() {
       <td class="muted">${r.index + 1}</td>
       <td class="p">${esc(r.prompt)}${r.chars > 300 ? '<span class="muted">…</span>' : ""}</td>
       <td class="labonly ${lab ? "" : "hidden"}">${lab ? (runLabels[r.index] ?? '<span class="muted">—</span>') : ""}</td>
-      <td><span class="pill p-${verdict(r)}">${{INJ: "1 · INJECTION", CLEAN: "0 · CLEAN", ERR: "ERROR"}[verdict(r)]}</span></td>
+      <td><span class="pill p-${verdict(r)}">${{INJ: "✗ INJECTION", CLEAN: "✓ CLEAN", ERR: "ERROR"}[verdict(r)]}</span></td>
       <td class="labonly ${lab ? "" : "hidden"}">${o ? `<span class="oc oc-${o}">${o}</span>` : ""}</td>
       <td class="ex">${esc(r.error || r.explanation)}</td>
       <td>${r.jev_level == null ? '<span class="muted">—</span>' : `${r.jev_level}<span class="muted"> · ${Math.round((r.jev_confidence || 0) * 100)}%</span>`}</td>
+      <td>${(r.detectors || []).map(d => `<span class="tag">${esc(d)}</span>`).join("") || '<span class="muted">—</span>'}</td>
+      <td>${(r.flagged_checks || []).map(c => `<span class="tag">${esc(c)}</span>`).join("") || '<span class="muted">—</span>'}</td>
       <td class="fullcol ${mode !== "full" ? "hidden" : ""}">${r.tool ? `<code>${esc(r.tool)}</code> → <span class="pill p-${esc(r.final_decision)}">${esc(r.final_decision)}</span>` : '<span class="muted">—</span>'}</td>
       <td class="muted" style="white-space:nowrap">${(r.ms / 1000).toFixed(2)} s</td></tr>
-    <tr class="hidden" id="d${r.index}"><td></td><td colspan="8">${detail(r)}</td></tr>`; }).join("")
-    || `<tr><td colspan="9" class="muted" style="padding:16px">Nothing in this filter.</td></tr>`;
+    <tr class="hidden" id="d${r.index}"><td></td><td colspan="10">${detail(r)}</td></tr>`; }).join("")
+    || `<tr><td colspan="11" class="muted" style="padding:16px">Nothing in this filter.</td></tr>`;
 }
 function detail(r) {
   if (r.error) return `<pre>${esc(r.error)}</pre>`;
