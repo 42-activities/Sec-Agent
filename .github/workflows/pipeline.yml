@@ -21,4 +21,18 @@ jobs:
       images: '[{"name": "app", "context": "."}]'
       deploy-path: ~/projects/Sec-Agent
       health-url: http://127.0.0.1:8700/health
-    secrets: inherit
+    secrets:
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+      # The server's .env is rewritten from these on every deploy, so GitHub is the
+      # single source of truth. To rotate the Bedrock key:
+      #   gh secret set AWS_BEARER_TOKEN_BEDROCK  &&  gh workflow run pipeline.yml
+      ENV_FILE: |
+        AWS_BEARER_TOKEN_BEDROCK=${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
+        PROXY_AUTH_TOKEN=${{ secrets.PROXY_AUTH_TOKEN }}
+        AWS_REGION=${{ vars.AWS_REGION || 'us-west-2' }}
+        AWS_DEFAULT_REGION=${{ vars.AWS_REGION || 'us-west-2' }}
+        EXECUTOR_MODEL_ID=${{ vars.EXECUTOR_MODEL_ID || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0' }}
+        SECURITY_MODEL_ID=${{ vars.SECURITY_MODEL_ID || 'us.anthropic.claude-haiku-4-5-20251001-v1:0' }}
