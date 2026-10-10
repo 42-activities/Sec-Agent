@@ -309,7 +309,7 @@ def gmail_start(request: Request, next: str = "/") -> Response:
     if not gmail.enabled():
         raise HTTPException(status_code=404, detail="Gmail is not configured on this server")
     state = secrets.token_urlsafe(24)
-    page = "batch" if next == "/batch" else "home"  # where to land afterwards (cookie-safe word)
+    page = {"/batch": "batch", "/demo-hr": "hr"}.get(next, "home")  # where to land afterwards (cookie-safe word)
     resp = RedirectResponse(gmail.auth_url(gmail.redirect_uri(_base_url(request)), state), status_code=302)
     resp.set_cookie(_STATE_COOKIE, f"{state}.{page}", max_age=600, httponly=True, samesite="lax",
                     secure=_secure(request), path="/auth/google")
@@ -322,7 +322,7 @@ def gmail_callback(request: Request, state: str = "", code: str = "", error: str
     expected, _, page = sa_oauth_state.partition(".")
     if not expected or not secrets.compare_digest(expected, state):  # CSRF: must be our own sign-in
         raise HTTPException(status_code=400, detail="sign-in expired or not started here — try again")
-    nxt = "/batch" if page == "batch" else "/"
+    nxt = {"batch": "/batch", "hr": "/demo-hr"}.get(page, "/")
     if error or not code:
         resp = RedirectResponse(f"{nxt}?gmail=denied", status_code=302)
     else:
@@ -455,6 +455,11 @@ def batch_run(req: BatchRequest) -> StreamingResponse:
 @app.get("/batch")
 def batch_page() -> FileResponse:
     return FileResponse(_STATIC / "batch.html")
+
+
+@app.get("/demo-hr")
+def demo_hr_page() -> FileResponse:
+    return FileResponse(_STATIC / "demo-hr.html")
 
 
 # ------------------------------------- SOC ---------------------------------------
