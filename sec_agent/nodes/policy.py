@@ -8,7 +8,7 @@ loosen a deterministic rule.
 
 from __future__ import annotations
 
-from ..config import settings
+from ..rules import Rules, active
 from ..models import (
     AgentState,
     ContextItem,
@@ -19,10 +19,10 @@ from ..models import (
 )
 
 
-def _touches_denied_path(action: ProposedAction) -> list[str]:
+def _touches_denied_path(action: ProposedAction, rules: Rules) -> list[str]:
     hits = []
     blob = " ".join(str(v) for v in action.arguments.values()).lower()
-    for needle in settings.denied_path_substrings:
+    for needle in rules.denied_path_substrings:
         if needle in blob:
             hits.append(needle)
     return hits
@@ -41,18 +41,24 @@ def _influenced_by_untrusted(action: ProposedAction, items: list[ContextItem]) -
     return False
 
 
-def evaluate(action: ProposedAction, items: list[ContextItem]) -> tuple[Decision, list[str]]:
-    """Return (decision, reasons). Pure function — unit-tested without network."""
+def evaluate(
+    action: ProposedAction, items: list[ContextItem], rules: Rules | None = None
+) -> tuple[Decision, list[str]]:
+    """Return (decision, reasons). Pure function of its inputs — unit-tested without network.
+
+    The checks below are fixed code; ``rules`` only supplies the lists they use.
+    """
+    rules = rules or active()
     reasons: list[str] = []
 
     # 1. Least privilege: unknown tools are refused outright.
-    if action.tool not in settings.allowed_tools:
+    if action.tool not in rules.allowed_tools:
         reasons.append(f"tool '{action.tool}' is not in the allow-list")
         return Decision.DENY, reasons
 
     # 2. Hard denylist: sensitive resources are never reachable, whatever the LLM says.
     #    Output-only tools reach no resource, so their text is not a resource reference.
-    denied = [] if action.tool in settings.output_only_tools else _touches_denied_path(action)
+    denied = [] if action.tool in rules.output_only_tools else _touches_denied_path(action, rules)
     if denied:
         reasons.append(f"argument references denied resource(s): {', '.join(denied)}")
         return Decision.DENY, reasons
@@ -61,7 +67,7 @@ def evaluate(action: ProposedAction, items: list[ContextItem]) -> tuple[Decision
     #    taken from a document — the classic "our bank account changed" fraud.
     if action.tool == "pay_invoice":
         payee = str(action.arguments.get("payee", "")).strip()
-        on_file = _norm_iban(settings.known_payees.get(payee, ""))
+        on_file = _norm_iban(rules.known_payees.get(payee, ""))
         if not on_file:
             reasons.append(f"payee '{payee}' is not in the vendor master data")
             return Decision.DENY, reasons
@@ -74,7 +80,7 @@ def evaluate(action: ProposedAction, items: list[ContextItem]) -> tuple[Decision
     if action.tool == "send_email":
         recipient = str(action.arguments.get("recipient", "")).strip().lower()
         domain = recipient.rsplit("@", 1)[-1] if "@" in recipient else ""
-        if domain not in settings.allowed_email_domains:
+        if domain not in rules.allowed_email_domains:
             reasons.append(f"recipient domain '{domain or recipient}' is outside the allowed "
                            f"email domains -> external data egress")
             return Decision.DENY, reasons
@@ -83,12 +89,12 @@ def evaluate(action: ProposedAction, items: list[ContextItem]) -> tuple[Decision
     influenced = _influenced_by_untrusted(action, items)
 
     # 4. High-impact actions (payments) always go to a human, even from a clean request.
-    if action.tool in settings.approval_required_tools:
+    if action.tool in rules.approval_required_tools:
         reasons.append(f"'{action.tool}' is a high-impact action -> always requires human approval")
         decision = most_restrictive(decision, Decision.APPROVAL)
 
     # 5. Consequential action influenced by untrusted data -> human approval.
-    if action.tool in settings.consequential_tools and influenced:
+    if action.tool in rules.consequential_tools and influenced:
         reasons.append(
             f"consequential tool '{action.tool}' was influenced by untrusted/tainted "
             f"context -> requires human approval"

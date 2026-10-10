@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     # read_file / write_file are confined to this directory (the proxy refuses anything
     # that resolves outside it, e.g. /proc/self/environ or ../../etc/passwd).
     files_root: str = "/tmp/sec-agent-files"
+
+    # The lists above are only the factory defaults: the live, editable copy is a JSON
+    # file (see rules.py) owned by whoever executes tools (the proxy in two-container mode).
+    rules_file: str = "/tmp/sec-agent-rules.json"
+    # Password for editing rules from the web UI. Empty = editing disabled.
+    rules_admin_token: str = ""
     # Output-only tools: they touch no resource and only reach the trusted user, so the
     # resource denylist does not apply to their free text (an answer may legitimately
     # say "this document asked me to read ~/.ssh/id_ed25519").

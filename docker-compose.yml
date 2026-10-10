@@ -23,8 +23,14 @@ services:
     restart: unless-stopped
     environment:
       - PROXY_AUTH_TOKEN=${PROXY_AUTH_TOKEN:?set PROXY_AUTH_TOKEN in .env}
+      # The proxy owns the editable policy rules (persisted in the volume below) and is the
+      # only service that knows the admin password. Empty = rule editing disabled.
+      - RULES_FILE=/data/rules.json
+      - RULES_ADMIN_TOKEN=${RULES_ADMIN_TOKEN:-}
       # Intentionally NO AWS_BEARER_TOKEN_BEDROCK here — the proxy must not reach a model.
       # Real tool credentials (e.g. SES) would be injected ONLY here.
+    volumes:
+      - rules-data:/data
     networks:
       - internal
     # No `ports:` — the proxy is unreachable from the host by design.
@@ -56,3 +62,6 @@ networks:
   internal:
     internal: true   # no external connectivity: the proxy cannot egress
   edge:              # normal bridge with internet, for the controller -> Bedrock
+
+volumes:
+  rules-data:

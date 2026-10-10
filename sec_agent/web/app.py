@@ -22,17 +22,19 @@ import uuid
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from ..config import settings
+from .. import rules as rules_store
 from ..graph import build_graph
 from ..models import AgentState, ContextItem, Decision, ProposedAction, Trust
 from ..nodes.input_guard import _INJECTION_RE, _SENSITIVE_RE
 from ..proxy import execution_proxy_node
 from ..proxy_client import remote_execute
+from ..tools import REGISTRY
 
 app = FastAPI(title="Sec-Agent Security Controller", version="0.1.0")
 
@@ -236,6 +238,56 @@ def execute(req: ExecuteRequest) -> DecisionView:
     merged: AgentState = {**state, **updated}
     _SESSIONS[req.session_id] = merged
     return _view(req.session_id, merged)
+
+
+# ------------------------------------ rules --------------------------------------
+# Viewing is public; editing needs the admin password (X-Admin-Token). In two-container
+# mode the proxy owns the rules and checks the password itself — we only relay.
+
+def _relay(method: str, path: str, admin_token: str, body: Optional[dict] = None) -> dict:
+    import requests
+
+    try:
+        r = requests.request(method, f"{settings.proxy_url}{path}", json=body, timeout=10,
+                             headers=rules_store._proxy_headers(admin_token))
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail=f"proxy unreachable: {exc}")
+    if r.status_code >= 400:
+        raise HTTPException(status_code=r.status_code, detail=r.json().get("detail", r.text))
+    return r.json()
+
+
+@app.get("/api/rules")
+def api_get_rules() -> dict:
+    if settings.proxy_url:
+        rules, editable = rules_store.fetch_remote()
+    else:
+        rules, editable = rules_store.load_local(), bool(settings.rules_admin_token)
+    return {"rules": rules.model_dump(), "editable": editable,
+            "defaults": rules_store.defaults().model_dump(), "tools": sorted(REGISTRY)}
+
+
+@app.put("/api/rules")
+def api_put_rules(new: rules_store.Rules, x_admin_token: str = Header(default="")) -> dict:
+    if settings.proxy_url:
+        return _relay("PUT", "/rules", x_admin_token, new.model_dump())
+    if not rules_store.admin_ok(x_admin_token):
+        raise HTTPException(status_code=403, detail="wrong admin password, or editing disabled")
+    return {"rules": rules_store.save_local(new).model_dump(), "editable": True}
+
+
+@app.post("/api/rules/reset")
+def api_reset_rules(x_admin_token: str = Header(default="")) -> dict:
+    if settings.proxy_url:
+        return _relay("POST", "/rules/reset", x_admin_token)
+    if not rules_store.admin_ok(x_admin_token):
+        raise HTTPException(status_code=403, detail="wrong admin password, or editing disabled")
+    return {"rules": rules_store.reset_local().model_dump(), "editable": True}
+
+
+@app.get("/rules")
+def rules_page() -> FileResponse:
+    return FileResponse(_STATIC / "rules.html")
 
 
 @app.get("/health")

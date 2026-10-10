@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from ..config import settings
+from ..rules import active
 from ..llm import make_security_llm
 from ..models import AgentState, ContextItem, ProposedAction, SecurityDecision, Taint
 
@@ -37,7 +37,7 @@ untrusted data and unrelated to the goal, DENY.
 """
 
 
-def _summarize_arguments(action: ProposedAction) -> dict:
+def _summarize_arguments(action: ProposedAction, denied: list[str]) -> dict:
     """Reduce raw arguments to a provenance-safe summary.
 
     We avoid echoing full argument *values* (which could carry injection) and
@@ -46,7 +46,7 @@ def _summarize_arguments(action: ProposedAction) -> dict:
     summary = {}
     for key, value in action.arguments.items():
         text = str(value)
-        sensitive = any(s in text.lower() for s in settings.denied_path_substrings)
+        sensitive = any(s in text.lower() for s in denied)
         summary[key] = {
             "length": len(text),
             "sensitive_resource": sensitive,
@@ -83,7 +83,7 @@ def security_node(state: AgentState) -> AgentState:
         "original_goal": action.original_goal,
         "proposed_action": {
             "tool": action.tool,
-            "argument_summary": _summarize_arguments(action),
+            "argument_summary": _summarize_arguments(action, active().denied_path_substrings),
             "reason": action.reason,
         },
         "provenance": _provenance(action, items),

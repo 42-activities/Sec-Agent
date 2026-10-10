@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from ..config import settings
 from ..models import ContextItem, Decision, ProposedAction, Taint, Trust
 from ..nodes.policy import evaluate
+from .. import rules as rules_store
 from ..tools import REGISTRY, invoke
 
 app = FastAPI(title="Sec-Agent Execution Proxy", version="0.1.0")
@@ -55,6 +56,36 @@ def _check_auth(authorization: str) -> None:
         raise HTTPException(status_code=500, detail="proxy missing PROXY_AUTH_TOKEN")
     if authorization != f"Bearer {expected}":
         raise HTTPException(status_code=401, detail="unauthorized")
+
+
+# ------------------------------- rules (owned here) -------------------------------
+
+@app.get("/rules")
+def get_rules(authorization: str = Header(default="")) -> dict:
+    _check_auth(authorization)
+    return {"rules": rules_store.load_local().model_dump(), "editable": bool(settings.rules_admin_token)}
+
+
+@app.put("/rules")
+def put_rules(
+    new: rules_store.Rules,
+    authorization: str = Header(default=""),
+    x_admin_token: str = Header(default=""),
+) -> dict:
+    # Two keys: the caller must be the controller AND carry the human admin's password,
+    # which the controller itself never stores.
+    _check_auth(authorization)
+    if not rules_store.admin_ok(x_admin_token):
+        raise HTTPException(status_code=403, detail="wrong admin password, or editing disabled")
+    return {"rules": rules_store.save_local(new).model_dump(), "editable": True}
+
+
+@app.post("/rules/reset")
+def reset_rules(authorization: str = Header(default=""), x_admin_token: str = Header(default="")) -> dict:
+    _check_auth(authorization)
+    if not rules_store.admin_ok(x_admin_token):
+        raise HTTPException(status_code=403, detail="wrong admin password, or editing disabled")
+    return {"rules": rules_store.reset_local().model_dump(), "editable": True}
 
 
 @app.get("/healthz")

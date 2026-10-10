@@ -32,6 +32,7 @@ jobs:
       ENV_FILE: |
         AWS_BEARER_TOKEN_BEDROCK=${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
         PROXY_AUTH_TOKEN=${{ secrets.PROXY_AUTH_TOKEN }}
+        RULES_ADMIN_TOKEN=${{ secrets.RULES_ADMIN_TOKEN }}
         AWS_REGION=${{ vars.AWS_REGION || 'us-west-2' }}
         AWS_DEFAULT_REGION=${{ vars.AWS_REGION || 'us-west-2' }}
         EXECUTOR_MODEL_ID=${{ vars.EXECUTOR_MODEL_ID || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0' }}
