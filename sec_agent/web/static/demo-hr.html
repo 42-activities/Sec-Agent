@@ -42,7 +42,9 @@
   button:disabled { opacity: .5; cursor: not-allowed; }
   a.connect { display: inline-block; text-decoration: none; background: var(--raised); color: var(--text);
     border: 1px solid var(--border); border-radius: 7px; padding: 7px 12px; font-size: 13px; font-weight: 500; }
-  a.connect:hover { border-color: var(--border-strong); }
+  a.connect:hover, button.connect:hover { border-color: var(--border-strong); }
+  button.connect { background: var(--raised); color: var(--text); border: 1px solid var(--border); border-radius: 7px;
+    padding: 7px 12px; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
 
   /* setup */
   .ctl { display: flex; flex-wrap: wrap; gap: 16px 22px; align-items: flex-end; margin-top: 12px; }
@@ -161,6 +163,7 @@
     <div class="gmail hidden" id="gmailBar">
       <span class="dot" id="gmailDot"></span><span id="gmailStatus">Checking Gmail…</span>
       <a class="connect hidden" id="gmailConnect" href="/auth/google/start?next=/demo-hr">Connect Gmail (read-only)</a>
+      <button class="connect hidden" id="gmailLogout" type="button">Log out of Gmail</button>
       <span class="muted">Only the label <b>secagent-applications</b> is read.</span>
     </div>
     <div class="runbar">

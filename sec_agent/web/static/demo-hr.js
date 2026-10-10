@@ -254,13 +254,23 @@ async function gmailStatus() {
       $("gmailDot").classList.add("ok");
       $("gmailStatus").textContent = `Connected as ${s.email || "Gmail"} (read-only).`;
       $("gmailConnect").classList.add("hidden");
+      $("gmailLogout").classList.remove("hidden");
     } else {
       $("gmailDot").classList.remove("ok");
       $("gmailStatus").textContent = "Not connected.";
       $("gmailConnect").classList.remove("hidden");
+      $("gmailLogout").classList.add("hidden");
     }
   } catch { $("gmailStatus").textContent = "Gmail status unavailable."; }
 }
+
+// Log out: ends the session here and revokes the access at Google.
+$("gmailLogout").addEventListener("click", async () => {
+  $("gmailLogout").disabled = true;
+  try { await fetch("/auth/google/logout", { method: "POST" }); } catch {}
+  $("gmailLogout").disabled = false;
+  gmailStatus();
+});
 
 // Returning from the Google sign-in: land on Gmail source, clean the URL.
 if (/[?&]gmail=connected/.test(location.search)) { $("source").value = "gmail"; }
