@@ -105,3 +105,6 @@ header nav .theme-toggle { margin-left: 16px; padding: 3px 10px; border-radius: 
   color: var(--muted); border: 1px solid var(--border); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
 header nav .theme-toggle:hover { color: var(--text); border-color: var(--border-strong); }
 @media (max-width: 600px) { header nav .theme-toggle { margin: 0; } }
+.site-foot { text-align: center; color: var(--muted); font-size: 12.5px; padding: 8px 16px 28px; }
+.site-foot a { color: var(--muted); }
+.site-foot a:hover { color: var(--text); }

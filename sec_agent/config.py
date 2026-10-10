@@ -85,6 +85,8 @@ class Settings(BaseSettings):
     gmail_max_results: int = 10      # per read_email call
     gmail_batch_max: int = 50        # per "load my inbox" on /batch
     gmail_body_chars: int = 8000     # body text kept per email
+    # Contact shown on /privacy and /terms (empty = the GitHub issues page).
+    contact_email: str = ""
 
     # Output-only tools: they touch no resource and only reach the trusted user, so the
     # resource denylist does not apply to their free text (an answer may legitimately

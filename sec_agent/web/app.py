@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import Cookie, FastAPI, Header, HTTPException, Request
-from fastapi.responses import FileResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -149,6 +149,12 @@ def _prepare(req: AnalyzeRequest):
     return state, graph
 
 
+def _loggable(req: AnalyzeRequest) -> bool:
+    """Runs on an email from someone's Gmail are never written to the (public) SOC log: its
+    audit lines and checklist evidence can quote the email. /execute then finds no row either."""
+    return req.document_source != "gmail"
+
+
 def _action_view(action: Optional[ProposedAction]) -> Optional[dict]:
     if action is None:
         return None
@@ -193,7 +199,8 @@ def analyze(req: AnalyzeRequest) -> DecisionView:
     result = graph.invoke(state)
     session_id = uuid.uuid4().hex
     _SESSIONS[session_id] = result
-    event_log.record_analysis(session_id, result, compromised=bool(req.force_tool))
+    if _loggable(req):
+        event_log.record_analysis(session_id, result, compromised=bool(req.force_tool))
     return _view(session_id, result)
 
 
@@ -226,7 +233,8 @@ def analyze_stream(req: AnalyzeRequest) -> StreamingResponse:
             yield line({"type": "error", "detail": f"{type(exc).__name__}: {exc}"})
             return
         _SESSIONS[session_id] = merged
-        event_log.record_analysis(session_id, merged, compromised=bool(req.force_tool))
+        if _loggable(req):
+            event_log.record_analysis(session_id, merged, compromised=bool(req.force_tool))
         yield line({"type": "done", "view": _view(session_id, merged).model_dump()})
 
     # X-Accel-Buffering: tell nginx not to buffer, so events reach the browser as they happen.
@@ -464,6 +472,25 @@ def soc_event(session_id: str) -> dict:
 @app.get("/soc")
 def soc_page() -> FileResponse:
     return FileResponse(_STATIC / "soc.html")
+
+
+# ------------------------------- legal pages -------------------------------------
+
+def _legal_page(name: str) -> HTMLResponse:
+    contact = settings.contact_email
+    link = (f'<a href="mailto:{contact}">{contact}</a>' if contact else
+            '<a href="https://github.com/42-activities/Sec-Agent/issues">github.com/42-activities/Sec-Agent/issues</a>')
+    return HTMLResponse((_STATIC / name).read_text(encoding="utf-8").replace("{{CONTACT}}", link))
+
+
+@app.get("/privacy")
+def privacy_page() -> HTMLResponse:
+    return _legal_page("privacy.html")
+
+
+@app.get("/terms")
+def terms_page() -> HTMLResponse:
+    return _legal_page("terms.html")
 
 
 @app.get("/health")

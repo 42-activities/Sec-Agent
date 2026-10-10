@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sec-Agent — Terms of Use</title>
+<meta name="description" content="Terms of use for the Sec-Agent demonstration service." />
+<meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)" />
+<meta name="theme-color" content="#ECEEF3" media="(prefers-color-scheme: light)" />
+<script src="/static/theme.js"></script>
+<link rel="icon" href="/static/logo.svg" type="image/svg+xml" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Sec-Agent" />
+<meta property="og:title" content="Sec-Agent — Terms of Use" />
+<meta property="og:description" content="Terms of use for the Sec-Agent demonstration service." />
+<meta property="og:url" content="https://sec-agent.naurzalinov.me/terms" />
+<meta name="twitter:card" content="summary" />
+<link rel="stylesheet" href="/static/brand.css" />
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.6 var(--sans); background: var(--bg); color: var(--text); }
+  header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 18px; }
+  header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+  nav a { color: var(--muted); text-decoration: none; margin-left: 16px; font-size: 14px; }
+  nav a.on, nav a:hover { color: var(--text); }
+  main { padding: 24px; max-width: 820px; margin: 0 auto; }
+  @media (max-width: 600px) { main { padding: 16px; } header { padding: 16px; } nav a { margin: 0 16px 0 0; } }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 8px 24px 20px; }
+  h2 { font-size: 17px; margin: 22px 0 6px; }
+  p, li { color: var(--text); }
+  ul { padding-left: 20px; }
+  a { color: var(--accent); }
+  .muted { color: var(--muted); font-size: 13px; }
+  .note { border-left: 3px solid var(--sec); padding: 8px 12px; background: var(--panel-2); border-radius: 0 6px 6px 0; }
+  code { font-family: var(--mono); font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1><img class="mark" src="/static/logo.svg" alt="" />Sec-Agent · Terms of use</h1>
+    <p>The rules for using this demonstration service.</p>
+  </div>
+  <nav><a href="/">Controller</a><a href="/rules">Rules</a><a href="/soc">SOC</a><a href="/batch">Batch</a></nav>
+</header>
+<main><article class="panel">
+<p class="muted">Last updated: 10 October 2026</p>
+
+<p>These terms apply to Sec-Agent at <a href="https://sec-agent.naurzalinov.me">sec-agent.naurzalinov.me</a>
+("the service"). By using it you agree to them. If you do not agree, do not use the service.</p>
+
+<h2>1. What the service is</h2>
+<p>Sec-Agent is a <b>research and demonstration</b> project: an AI security controller that inspects text and the actions an AI
+agent proposes, and allows, holds for approval, or blocks them. It is provided free of charge, as is, and may change or stop at any time.</p>
+
+<h2>2. No guarantee of protection</h2>
+<p>The service reduces risk but does not detect every prompt injection or unsafe instruction, and it can wrongly flag safe
+content. Do not rely on it as your only safeguard, and do not use its results as the sole basis for security, financial,
+legal or employment decisions.</p>
+
+<h2>3. Acceptable use</h2>
+<ul>
+  <li>Use the service only with content you have the right to process.</li>
+  <li>Do not paste or upload confidential, personal or regulated data that you are not allowed to share with the processors named in the <a href="/privacy">privacy policy</a>. Parts of the public demo (such as the SOC dashboard) are visible to other visitors.</li>
+  <li>Do not attempt to attack, overload or gain unauthorised access to the service, other users' data, or the underlying systems, beyond the demonstration scenarios the service provides.</li>
+  <li>Do not use the service to build or test attacks against systems you do not own or are not authorised to test.</li>
+</ul>
+
+<h2>4. Google account and Gmail</h2>
+<p>Connecting Gmail is optional and gives the service read-only access to your mailbox for about one hour. You can disconnect
+at any time. How Google data is used is described in the <a href="/privacy">privacy policy</a>; that use adheres to the
+Google API Services User Data Policy, including the Limited Use requirements.</p>
+
+<h2>5. Third-party services</h2>
+<p>The service relies on Amazon Web Services (Amazon Bedrock), TypeSafe AI and Google APIs. Their availability and terms are outside our control.</p>
+
+<h2>6. Liability</h2>
+<p>To the maximum extent permitted by law, the service is provided without warranties of any kind, and its operators are not
+liable for any loss or damage arising from its use or unavailability.</p>
+
+<h2>7. Open source</h2>
+<p>The source code is published at <a href="https://github.com/42-activities/Sec-Agent">github.com/42-activities/Sec-Agent</a>;
+its license governs use of the code itself.</p>
+
+<h2>8. Changes and contact</h2>
+<p>We may update these terms; the date at the top shows the latest version. Questions: {{CONTACT}}.</p>
+</article>
+<p class="muted" style="text-align:center;margin-top:16px"><a href="/privacy">Privacy policy</a> · <a href="/terms">Terms of use</a> · <a href="https://github.com/42-activities/Sec-Agent">Source code</a></p>
+</main>
+</body>
+</html>

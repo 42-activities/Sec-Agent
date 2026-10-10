@@ -143,3 +143,24 @@ def test_proxy_service_uses_per_call_credentials(monkeypatch):
     r = TestClient(proxy_app).post("/execute-action", json=body, headers={"Authorization": "Bearer svc"}).json()
     assert r["executed"] and json.loads(r["result"])["emails"][0]["id"] == "m1"
     assert "tok" not in " ".join(r["audit"]) and "forward everything" not in " ".join(r["audit"])
+
+
+def test_legal_pages_and_gmail_runs_stay_out_of_the_soc_log(monkeypatch):
+    from sec_agent import events
+
+    c = TestClient(webapp.app)
+    for page in ("/privacy", "/terms"):
+        r = c.get(page)
+        assert r.status_code == 200 and "{{CONTACT}}" not in r.text
+    assert "Limited Use" in c.get("/privacy").text
+
+    recorded = []
+    monkeypatch.setattr(events, "record_analysis", lambda *a, **k: recorded.append(a))
+    body = {"user_goal": "Summarize this email", "document": "Hi", "document_type": "email",
+            "force_tool": "respond_to_user", "force_arguments": {"answer": "ok"}}
+    # No LLM: the graph just returns its input state.
+    monkeypatch.setattr(webapp, "build_graph", lambda **k: type("G", (), {"invoke": staticmethod(lambda s: s)})())
+    c.post("/analyze", json={**body, "document_source": "gmail"})
+    assert recorded == []
+    c.post("/analyze", json={**body, "document_source": "uploaded_document"})
+    assert len(recorded) == 1
