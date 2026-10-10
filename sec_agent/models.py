@@ -97,5 +97,6 @@ class AgentState(TypedDict, total=False):
     policy_decision: Optional[Decision]
     policy_reasons: list[str]
     final_decision: Optional[Decision]
+    jev_input: dict  # context-item id -> Jev prompt-injection risk result
     execution_result: Optional[str]
     audit: list[str]

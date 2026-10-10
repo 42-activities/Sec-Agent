@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field
 
 from ..config import settings
 from .. import rules as rules_store
+from .. import jev
 from ..graph import build_graph
 from ..models import AgentState, ContextItem, Decision, ProposedAction, Trust
 from ..nodes.input_guard import _INJECTION_RE, _SENSITIVE_RE
@@ -163,9 +164,10 @@ def _node_data(node: str, state: AgentState) -> dict:
             {"id": i.id, "source": i.source, "source_type": i.source_type,
              "trust": i.trust.value, "taint": i.taint.value, "risk": i.risk,
              "instruction_detected": i.instruction_detected,
-             "findings": _findings(i.content) if i.trust != Trust.TRUSTED else []}
+             "findings": _findings(i.content) if i.trust != Trust.TRUSTED else [],
+             "jev": state.get("jev_input", {}).get(i.id)}
             for i in state.get("context_items", [])
-        ]}
+        ], "jev_enabled": jev.enabled()}
     if node == "executor":
         return {"proposed_action": _action_view(state.get("proposed_action"))}
     if node == "security":

@@ -15,7 +15,11 @@ from __future__ import annotations
 
 import re
 
+from concurrent.futures import ThreadPoolExecutor
+
+from .. import jev
 from ..models import AgentState, ContextItem, Taint, Trust
+from ..rules import active
 
 # Phrases that commonly appear in prompt-injection payloads.
 _INJECTION_PATTERNS = [
@@ -66,9 +70,33 @@ def scan_item(item: ContextItem) -> ContextItem:
     )
 
 
+def _apply_jev(item: ContextItem, result: dict) -> ContextItem:
+    """Jev can only RAISE taint/risk — a low score never makes content trusted."""
+    if result.get("status") != "ok" or not result["suspicious"]:
+        return item
+    return item.model_copy(update={"taint": Taint.SUSPICIOUS, "risk": max(item.risk, result["level"] / 100)})
+
+
 def input_guard_node(state: AgentState) -> AgentState:
     items = [scan_item(i) for i in state.get("context_items", [])]
     audit = list(state.get("audit", []))
+
+    jev_input: dict = {}
+    untrusted = [i for i in items if i.trust != Trust.TRUSTED]
+    if jev.enabled() and untrusted:
+        level = active().jev_suspicious_level
+        with ThreadPoolExecutor(max_workers=min(4, len(untrusted))) as pool:
+            results = list(pool.map(lambda i: jev.scan_untrusted(i.content, i.source_type, level), untrusted))
+        jev_input = {i.id: r for i, r in zip(untrusted, results)}
+        items = [_apply_jev(i, jev_input[i.id]) if i.id in jev_input else i for i in items]
+        for item_id, r in jev_input.items():
+            if r["status"] == "ok":
+                audit.append(f"[jev] {item_id}: prompt-injection risk {r['level']}/100 "
+                             f"(confidence {r['confidence']:.2f}, {r['ms']} ms) signals={r['signals']}"
+                             + (" -> SUSPICIOUS" if r["suspicious"] else ""))
+            else:
+                audit.append(f"[jev] {item_id}: unavailable ({r['error']}) — regex guard only")
+
     flagged = [i for i in items if i.instruction_detected or i.taint == Taint.SUSPICIOUS]
     for i in flagged:
         audit.append(
@@ -78,4 +106,4 @@ def input_guard_node(state: AgentState) -> AgentState:
         )
     if not flagged:
         audit.append("[input_guard] no suspicious context detected")
-    return {"context_items": items, "audit": audit}
+    return {"context_items": items, "audit": audit, "jev_input": jev_input}

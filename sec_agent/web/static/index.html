@@ -124,6 +124,12 @@
   .approval td { padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: top; word-break: break-word; }
   .approval td:first-child { color: var(--muted); width: 120px; }
   .approval ul { margin: 6px 0 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
+  .jev { margin-top: 6px; font-size: 12px; }
+  .jev .lvl { font-weight: 700; font-family: ui-monospace, monospace; }
+  .jev .scale { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; margin-top: 3px; }
+  .jev .scale span { height: 6px; border-radius: 2px; background: #2a2f3a; }
+  .jev .scale span.on { background: var(--c); }
+  .jev small { color: var(--muted); }
   details summary { cursor: pointer; color: var(--muted); font-size: 13px; margin-top: 8px; }
 </style>
 </head>
@@ -355,13 +361,15 @@ const handlers = {
     const items = e.data.items, bad = items.filter(i => i.taint === "suspicious");
     stage("input_guard", bad.length ? "warn" : "ok",
       bad.length ? `⚠ ${bad.length} suspicious item(s)` : "✓ no risk found",
-      items.map(i => `<span class="tag ${i.taint === "suspicious" ? "red" : i.trust === "trusted" ? "green" : ""}">${esc(i.id)}: ${esc(i.taint)}</span>`).join(""),
+      items.map(i => `<span class="tag ${i.taint === "suspicious" ? "red" : i.trust === "trusted" ? "green" : ""}">${esc(i.id)}: ${esc(i.taint)}</span>`).join("")
+        + items.filter(i => i.jev).map(i => jevCard(i)).join(""),
       e.ms);
     linkDone(1);
     const finds = bad.flatMap(i => i.findings);
     event("sec " + (bad.length ? "warn" : "ok"), "2 · Sec-Agent input guard", e.ms,
       items.map(i => `<b>${esc(i.id)}</b> (${esc(i.source_type)}) — trust <b>${esc(i.trust)}</b>, taint <b>${esc(i.taint)}</b>, risk ${(i.risk * 100).toFixed(0)}%${i.instruction_detected ? ' <span class="tag red">hidden instructions</span>' : ""}`).join("<br>")
       + (finds.length ? `<br>Matched: ${finds.map(f => `<span class="tag red">${esc(f)}</span>`).join("")}` : "")
+      + items.filter(i => i.jev).map(i => jevDetail(i)).join("")
       + (bad.length ? `<br>Content is <b>labeled, not removed</b> — we let the LLM see it and enforce on the way out.` : ""));
     if (skipped) {
       stage("executor", "skipped", "⚠ compromised (simulated)", `injected: <b>${callStr(e_injected)}</b>`);
@@ -407,6 +415,27 @@ const handlers = {
     event("bad", "Error", null, esc(e.detail));
   },
 };
+// ---------- Jev prompt-injection risk (0/20/40/60/80/100) ----------
+const jevColor = l => l >= 80 ? "var(--deny)" : l >= 40 ? "var(--approval)" : "var(--allow)";
+const SIGNAL_LABEL = { ai_instructions: "instructions to an AI", redirect: "redirects data/money",
+                       secrets: "asks for secrets", pressure: "pressure/urgency" };
+function jevCard(i) {
+  const j = i.jev;
+  if (j.status !== "ok") return `<div class="jev"><small>Jev unavailable — regex only</small></div>`;
+  return `<div class="jev" style="--c:${jevColor(j.level)}">Jev risk <span class="lvl" style="color:${jevColor(j.level)}">${j.level}/100</span>
+    <small>· ${esc(i.id)}</small>
+    <div class="scale">${[0, 20, 40, 60, 80, 100].map(l => `<span class="${l <= j.level ? "on" : ""}"></span>`).join("")}</div></div>`;
+}
+function jevDetail(i) {
+  const j = i.jev;
+  if (j.status !== "ok") return `<br><b>Jev</b> on ${esc(i.id)}: unavailable (${esc(j.error)}) — pattern matching only.`;
+  const sig = Object.entries(j.signals).map(([k, v]) =>
+    `<span class="tag ${v >= 0.5 ? "red" : ""}">${esc(SIGNAL_LABEL[k] || k)} ${(v * 100).toFixed(0)}%</span>`).join("");
+  return `<br><b>Jev</b> (${esc(j.model)}, ${j.ms} ms) rates <b>${esc(i.id)}</b> prompt-injection risk
+    <b style="color:${jevColor(j.level)}">${j.level}/100</b> (confidence ${(j.confidence * 100).toFixed(0)}%)${j.suspicious ? ' <span class="tag red">marked suspicious</span>' : ""}
+    <br>Signals: ${sig}`;
+}
+
 let e_injected = null, lastSecurity = null, lastPolicy = null;
 
 const APPROVE_LABEL = { pay_invoice: "Approve payment", send_email: "Approve & send email",

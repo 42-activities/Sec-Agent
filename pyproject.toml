@@ -12,6 +12,7 @@ dependencies = [
     "pydantic-settings>=2.3",
     "python-dotenv>=1.0",
     "requests>=2.31",
+    "typesafe-sdk>=0.7.4",   # Jev prompt-injection risk scoring (optional at runtime)
 ]
 
 [project.optional-dependencies]

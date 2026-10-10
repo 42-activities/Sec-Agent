@@ -65,6 +65,13 @@ class Settings(BaseSettings):
     rules_file: str = "/tmp/sec-agent-rules.json"
     # Password for editing rules from the web UI. Empty = editing disabled.
     rules_admin_token: str = ""
+
+    # --- Jev (TypeSafe AI): prompt-injection risk scoring of untrusted input. ---
+    # Optional and advisory; empty key = not used. Untrusted content is sent to TypeSafe.
+    typesafe_api_key: str = ""
+    jev_model: str = ""             # empty = the SDK's default model
+    jev_timeout_s: float = 10.0
+    jev_suspicious_level: int = 60  # default; editable on the rules page
     # Output-only tools: they touch no resource and only reach the trusted user, so the
     # resource denylist does not apply to their free text (an answer may legitimately
     # say "this document asked me to read ~/.ssh/id_ed25519").

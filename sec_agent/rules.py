@@ -36,6 +36,9 @@ class Rules(BaseModel):
     allowed_email_domains: list[str]
     approval_required_tools: list[str]
     consequential_tools: list[str]
+    # Jev risk level (0/20/.../100) at which untrusted content is marked suspicious.
+    # Has a default so rule files saved before this field existed still load.
+    jev_suspicious_level: int = Field(default=60, ge=0, le=100, multiple_of=20)
     updated_at: Optional[str] = Field(default=None, description="Set on every save.")
 
     @field_validator("allowed_tools", "denied_path_substrings", "output_only_tools",
@@ -73,6 +76,7 @@ def defaults() -> Rules:
         allowed_email_domains=settings.allowed_email_domains,
         approval_required_tools=settings.approval_required_tools,
         consequential_tools=settings.consequential_tools,
+        jev_suspicious_level=settings.jev_suspicious_level,
     )
 
 
