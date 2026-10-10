@@ -4,14 +4,25 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Sec-Agent — Security Controller</title>
+<meta name="description" content="Sec-Agent — an AI security controller that lets a compromised LLM agent propose actions but never execute unauthorized ones." />
+<meta name="theme-color" content="#0f1117" />
+<link rel="icon" href="/static/logo.svg" type="image/svg+xml" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Sec-Agent" />
+<meta property="og:title" content="Sec-Agent — Security Controller" />
+<meta property="og:description" content="Assume prompt injection can succeed — stop the compromised agent from turning it into real-world actions." />
+<meta property="og:url" content="https://sec-agent.naurzalinov.me/" />
+<meta name="twitter:card" content="summary" />
+<link rel="stylesheet" href="/static/brand.css" />
+
 <style>
   :root {
     --bg: #0f1117; --panel: #171a23; --panel-2: #0e1016; --border: #272b36; --text: #e6e8ee;
     --muted: #9aa3b2; --accent: #6ea8fe; --sec: #b48cff;
-    --allow: #2ecc71; --approval: #f1c40f; --deny: #e74c3c;
+    --allow: #3FC98B; --approval: #F5B74E; --deny: #F0556F;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 15px/1.5 -apple-system, Segoe UI, Roboto, sans-serif;
+  body { margin: 0; font: 15px/1.5 var(--sans);
          background: var(--bg); color: var(--text); }
   header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
   nav a { color: var(--muted); text-decoration: none; margin-left: 16px; font-size: 14px; }
@@ -27,7 +38,7 @@
   input[type=text], textarea {
     width: 100%; background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
     border-radius: 7px; padding: 9px 10px; font: inherit; }
-  textarea { min-height: 130px; resize: vertical; font-family: ui-monospace, monospace; font-size: 13px; }
+  textarea { min-height: 130px; resize: vertical; font-family: var(--mono); font-size: 13px; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   @media (max-width: 860px) { .grid2 { grid-template-columns: 1fr; } }
   .row { display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
@@ -54,12 +65,12 @@
   .stage h3 { margin: 0; font-size: 14.5px; }
   .stage .state { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
   .stage .sum { font-size: 12.5px; color: var(--text); word-break: break-word; }
-  .stage .time { margin-top: auto; font-size: 11px; color: var(--muted); font-family: ui-monospace, monospace; }
+  .stage .time { margin-top: auto; font-size: 11px; color: var(--muted); font-family: var(--mono); }
   .stage.running { opacity: 1; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(110,168,254,.15); }
   .stage.running.secstage { border-color: var(--sec); box-shadow: 0 0 0 3px rgba(180,140,255,.15); }
   .stage.ok { opacity: 1; border-color: var(--allow); }
   .stage.warn { opacity: 1; border-color: var(--approval); }
-  .stage.bad { opacity: 1; border-color: var(--deny); box-shadow: 0 0 0 3px rgba(231,76,60,.15); }
+  .stage.bad { opacity: 1; border-color: var(--deny); box-shadow: 0 0 0 3px rgba(240,85,111,.15); }
   .stage.info { opacity: 1; border-color: #3b4252; }
   .stage.skipped { opacity: .8; border-style: dashed; border-color: var(--approval); }
   .spin { width: 11px; height: 11px; border: 2px solid currentColor; border-right-color: transparent;
@@ -90,9 +101,9 @@
   .zone b { color: var(--sec); font-weight: 600; }
 
   .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-weight: 700; font-size: 11.5px; letter-spacing: .04em; }
-  .ALLOW { background: rgba(46,204,113,.15); color: var(--allow); border: 1px solid var(--allow); }
-  .APPROVAL { background: rgba(241,196,15,.13); color: var(--approval); border: 1px solid var(--approval); }
-  .DENY { background: rgba(231,76,60,.15); color: var(--deny); border: 1px solid var(--deny); }
+  .ALLOW { background: rgba(63,201,139,.15); color: var(--allow); border: 1px solid var(--allow); }
+  .APPROVAL { background: rgba(245,183,78,.13); color: var(--approval); border: 1px solid var(--approval); }
+  .DENY { background: rgba(240,85,111,.15); color: var(--deny); border: 1px solid var(--deny); }
   .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 5px; background: #2a2f3a; color: var(--muted); margin: 2px 4px 2px 0; }
   .tag.red { color: var(--deny); } .tag.yellow { color: var(--approval); } .tag.green { color: var(--allow); }
   .meter { height: 6px; background: #0b0d12; border-radius: 6px; overflow: hidden; margin-top: 3px; }
@@ -104,11 +115,11 @@
   .ev.sec { border-left-color: var(--sec); } .ev.llm { border-left-color: var(--accent); }
   .ev.bad { border-left-color: var(--deny); } .ev.ok { border-left-color: var(--allow); } .ev.warn { border-left-color: var(--approval); }
   .ev .h { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; font-weight: 600; flex-wrap: wrap; }
-  .ev .h span:last-child { color: var(--muted); font-weight: 400; font-family: ui-monospace, monospace; font-size: 11.5px; }
+  .ev .h span:last-child { color: var(--muted); font-weight: 400; font-family: var(--mono); font-size: 11.5px; }
   .ev .b { font-size: 13px; color: var(--muted); margin-top: 4px; }
   .ev .b b { color: var(--text); font-weight: 600; }
   @keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-  .audit { font-family: ui-monospace, monospace; font-size: 12px; }
+  .audit { font-family: var(--mono); font-size: 12px; }
   .audit div { padding: 3px 0; border-bottom: 1px dashed #21252f; color: var(--muted); word-break: break-word; }
   .stage pre { max-height: 170px; font-size: 11.5px; }
   .scenarios { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
@@ -118,14 +129,14 @@
   .scenario.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(110,168,254,.2); }
   .group { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 10px 0 6px; }
   .approval { margin-top: 16px; border: 1.5px solid var(--approval); border-radius: 10px; padding: 14px 16px;
-              background: rgba(241,196,15,.06); }
+              background: rgba(245,183,78,.06); }
   .approval h3 { margin: 0 0 4px; font-size: 15px; color: var(--approval); }
   .approval table { border-collapse: collapse; margin: 10px 0; width: 100%; font-size: 13px; table-layout: fixed; }
   .approval td { padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: top; word-break: break-word; }
   .approval td:first-child { color: var(--muted); width: 120px; }
   .approval ul { margin: 6px 0 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
   .jev { margin-top: 6px; font-size: 12px; }
-  .jev .lvl { font-weight: 700; font-family: ui-monospace, monospace; }
+  .jev .lvl { font-weight: 700; font-family: var(--mono); }
   .jev .scale { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; margin-top: 3px; }
   .jev .scale span { height: 6px; border-radius: 2px; background: #2a2f3a; }
   .jev .scale span.on { background: var(--c); }
@@ -133,7 +144,7 @@
   .checks { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12.5px; table-layout: fixed; }
   .checks td { padding: 4px 6px; border-bottom: 1px solid #21252f; vertical-align: top; word-break: break-word; }
   .checks td.i { width: 22px; text-align: center; font-weight: 700; }
-  .checks td.id { width: 42px; color: var(--muted); font-family: ui-monospace, monospace; }
+  .checks td.id { width: 42px; color: var(--muted); font-family: var(--mono); }
   .checks td.c { width: 30%; color: var(--text); }
   .checks td.by { width: 92px; }
   .checks .r-pass { color: var(--allow); } .checks .r-flag { color: var(--approval); } .checks .r-fail { color: var(--deny); }
@@ -147,7 +158,7 @@
 <body>
 <header>
   <div>
-    <h1>Sec-Agent · Security Controller</h1>
+    <h1><img class="mark" src="/static/logo.svg" alt="" />Sec-Agent · Security Controller</h1>
     <p>The agent <b>proposes</b> actions. The controller <b>authorizes</b> them. Only the proxy <b>executes</b>.</p>
   </div>
   <nav><a href="/" class="on">Controller</a><a href="/rules">Rules</a><a href="/soc">SOC</a><a href="/batch">Batch</a></nav>

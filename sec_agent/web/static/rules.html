@@ -4,14 +4,25 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Sec-Agent — Policy Rules</title>
+<meta name="description" content="Sec-Agent — an AI security controller that lets a compromised LLM agent propose actions but never execute unauthorized ones." />
+<meta name="theme-color" content="#0f1117" />
+<link rel="icon" href="/static/logo.svg" type="image/svg+xml" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Sec-Agent" />
+<meta property="og:title" content="Sec-Agent — Policy Rules" />
+<meta property="og:description" content="Assume prompt injection can succeed — stop the compromised agent from turning it into real-world actions." />
+<meta property="og:url" content="https://sec-agent.naurzalinov.me/rules" />
+<meta name="twitter:card" content="summary" />
+<link rel="stylesheet" href="/static/brand.css" />
+
 <style>
   :root {
     --bg: #0f1117; --panel: #171a23; --panel-2: #0e1016; --border: #272b36; --text: #e6e8ee;
     --muted: #9aa3b2; --accent: #6ea8fe; --sec: #b48cff;
-    --allow: #2ecc71; --approval: #f1c40f; --deny: #e74c3c;
+    --allow: #3FC98B; --approval: #F5B74E; --deny: #F0556F;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 15px/1.5 -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  body { margin: 0; font: 15px/1.5 var(--sans); background: var(--bg); color: var(--text); }
   header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
   header h1 { margin: 0; font-size: 18px; }
   header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
@@ -39,11 +50,11 @@
   .pill { display: inline-block; padding: 1px 9px; border-radius: 999px; font-weight: 700; font-size: 11px; letter-spacing: .04em; }
   .LABEL { background: rgba(180,140,255,.13); color: var(--sec); border: 1px solid var(--sec); }
   select { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 7px 10px; font: inherit; }
-  .DENY { background: rgba(231,76,60,.15); color: var(--deny); border: 1px solid var(--deny); }
-  .APPROVAL { background: rgba(241,196,15,.13); color: var(--approval); border: 1px solid var(--approval); }
+  .DENY { background: rgba(240,85,111,.15); color: var(--deny); border: 1px solid var(--deny); }
+  .APPROVAL { background: rgba(245,183,78,.13); color: var(--approval); border: 1px solid var(--approval); }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .chip { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px;
-          font-family: ui-monospace, monospace; font-size: 12.5px; display: inline-flex; align-items: center; gap: 6px; }
+          font-family: var(--mono); font-size: 12.5px; display: inline-flex; align-items: center; gap: 6px; }
   .chip.new { border-color: var(--allow); }
   .chip button { background: none; color: var(--muted); padding: 0 2px; font-weight: 400; line-height: 1; }
   .chip button:hover { color: var(--deny); }
@@ -52,7 +63,7 @@
   table { border-collapse: collapse; width: 100%; font-size: 13px; table-layout: fixed; }
   td, th { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; word-break: break-word; }
   th { color: var(--muted); font-weight: 500; font-size: 12px; }
-  td input { width: 100%; font-family: ui-monospace, monospace; font-size: 12.5px; }
+  td input { width: 100%; font-family: var(--mono); font-size: 12.5px; }
   .sub { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); }
   .sub h3 { font-size: 13px; margin: 0 0 4px; color: var(--muted); font-weight: 600; }
   .note { border-left: 3px solid var(--sec); padding: 4px 0 4px 12px; font-size: 13.5px; color: var(--muted); }
@@ -64,7 +75,7 @@
 <body>
 <header>
   <div>
-    <h1>Sec-Agent · Policy rules</h1>
+    <h1><img class="mark" src="/static/logo.svg" alt="" />Sec-Agent · Policy rules</h1>
     <p>The fixed, non-LLM checks every proposed action must pass — in the order they run.</p>
   </div>
   <nav><a href="/">Controller</a><a href="/rules" class="on">Rules</a><a href="/soc">SOC</a><a href="/batch">Batch</a></nav>

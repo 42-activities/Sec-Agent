@@ -4,14 +4,25 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Sec-Agent — Batch Screening</title>
+<meta name="description" content="Sec-Agent — an AI security controller that lets a compromised LLM agent propose actions but never execute unauthorized ones." />
+<meta name="theme-color" content="#0f1117" />
+<link rel="icon" href="/static/logo.svg" type="image/svg+xml" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Sec-Agent" />
+<meta property="og:title" content="Sec-Agent — Batch Screening" />
+<meta property="og:description" content="Assume prompt injection can succeed — stop the compromised agent from turning it into real-world actions." />
+<meta property="og:url" content="https://sec-agent.naurzalinov.me/batch" />
+<meta name="twitter:card" content="summary" />
+<link rel="stylesheet" href="/static/brand.css" />
+
 <style>
   :root {
     --bg: #0f1117; --panel: #171a23; --panel-2: #0e1016; --border: #272b36; --text: #e6e8ee;
     --muted: #9aa3b2; --accent: #6ea8fe; --sec: #b48cff;
-    --good: #0ca30c; --warning: #fab219; --critical: #d03b3b;
+    --good: #3FC98B; --warning: #F5B74E; --critical: #F0556F;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 15px/1.5 -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  body { margin: 0; font: 15px/1.5 var(--sans); background: var(--bg); color: var(--text); }
   header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
   header h1 { margin: 0; font-size: 18px; }
   header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
@@ -26,7 +37,7 @@
   .bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .grow { flex: 1; }
   textarea { width: 100%; min-height: 200px; background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
-             border-radius: 7px; padding: 10px; font: 13px/1.5 ui-monospace, monospace; resize: vertical; }
+             border-radius: 7px; padding: 10px; font: 13px/1.5 var(--mono); resize: vertical; }
   button, .filebtn { background: var(--accent); color: #0b1020; border: 0; border-radius: 7px; padding: 9px 16px; font: inherit; font-weight: 600; cursor: pointer; }
   button.ghost, .filebtn { background: #2a2f3a; color: var(--text); font-weight: 500; }
   button:disabled { opacity: .5; cursor: not-allowed; }
@@ -50,25 +61,25 @@
   .tblwrap { overflow-x: auto; }
   td.p { max-width: 460px; word-break: break-word; }
   .pill { display: inline-flex; gap: 5px; align-items: center; padding: 1px 9px; border-radius: 999px; font-weight: 700; font-size: 11px; letter-spacing: .04em; white-space: nowrap; }
-  .p-INJ, .p-DENY { color: var(--critical); border: 1px solid var(--critical); background: rgba(208,59,59,.12); }
-  .p-CLEAN, .p-ALLOW { color: var(--good); border: 1px solid var(--good); background: rgba(12,163,12,.12); }
-  .p-APPROVAL { color: var(--warning); border: 1px solid var(--warning); background: rgba(250,178,25,.10); }
+  .p-INJ, .p-DENY { color: var(--critical); border: 1px solid var(--critical); background: rgba(240,85,111,.12); }
+  .p-CLEAN, .p-ALLOW { color: var(--good); border: 1px solid var(--good); background: rgba(63,201,139,.12); }
+  .p-APPROVAL { color: var(--warning); border: 1px solid var(--warning); background: rgba(245,183,78,.10); }
   .p-ERR { color: var(--muted); border: 1px solid var(--border); }
   .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 5px; background: #2a2f3a; color: var(--muted); margin: 1px 3px 1px 0; }
   .ck { width: 100%; font-size: 12.5px; } .ck td { padding: 4px 6px; border-bottom: 1px solid #21252f; }
-  .ck-i { width: 22px; text-align: center; font-weight: 700; } .ck-id { width: 42px; color: var(--muted); font-family: ui-monospace, monospace; }
+  .ck-i { width: 22px; text-align: center; font-weight: 700; } .ck-id { width: 42px; color: var(--muted); font-family: var(--mono); }
   .ck-pass { color: var(--good); } .ck-flag { color: var(--warning); } .ck-fail { color: var(--critical); } .ck-na, .ck-not_checked { color: var(--muted); }
   pre { background: var(--panel-2); border: 1px solid var(--border); border-radius: 7px; padding: 10px; font-size: 12px; white-space: pre-wrap; word-break: break-word; margin: 6px 0; }
   .cm { display: grid; grid-template-columns: auto 1fr 1fr; gap: 6px; max-width: 420px; font-size: 13px; }
   .cm > div { padding: 10px 12px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--border); }
   .cm .h { background: none; border: 0; color: var(--muted); font-size: 12px; padding: 4px 6px; }
   .cm .n { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
-  .cm .ok { border-color: rgba(12,163,12,.6); } .cm .bad { border-color: rgba(208,59,59,.6); }
+  .cm .ok { border-color: rgba(63,201,139,.6); } .cm .bad { border-color: rgba(240,85,111,.6); }
   .evalgrid { display: grid; grid-template-columns: minmax(0, 420px) 1fr; gap: 20px; align-items: start; }
   @media (max-width: 860px) { .evalgrid { grid-template-columns: 1fr; } }
   .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
   .oc { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 5px; white-space: nowrap; }
-  .oc-TP, .oc-TN { color: var(--good); background: rgba(12,163,12,.12); } .oc-FP, .oc-FN { color: var(--critical); background: rgba(208,59,59,.12); }
+  .oc-TP, .oc-TN { color: var(--good); background: rgba(63,201,139,.12); } .oc-FP, .oc-FN { color: var(--critical); background: rgba(240,85,111,.12); }
   td.ex { min-width: 260px; max-width: 420px; color: var(--muted); font-size: 12.5px; }
   .hint { font-size: 12.5px; color: var(--muted); margin: 8px 0 0; }
   .hint code { color: var(--text); }
@@ -85,7 +96,7 @@
 <body>
 <header>
   <div>
-    <h1>Sec-Agent · Batch screening</h1>
+    <h1><img class="mark" src="/static/logo.svg" alt="" />Sec-Agent · Batch screening</h1>
     <p>Run many prompts through the same Sec-Agent flow. Each prompt is treated as the user's own request.</p>
   </div>
   <nav><a href="/">Controller</a><a href="/rules">Rules</a><a href="/soc">SOC</a><a href="/batch" class="on">Batch</a></nav>

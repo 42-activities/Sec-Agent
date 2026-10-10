@@ -33,4 +33,4 @@ where = ["."]
 include = ["sec_agent*"]
 
 [tool.setuptools.package-data]
-"sec_agent.web" = ["static/*"]
+"sec_agent.web" = ["static/*", "static/fonts/*"]

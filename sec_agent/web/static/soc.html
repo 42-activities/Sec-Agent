@@ -4,17 +4,28 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Sec-Agent — SOC</title>
+<meta name="description" content="Sec-Agent — an AI security controller that lets a compromised LLM agent propose actions but never execute unauthorized ones." />
+<meta name="theme-color" content="#0f1117" />
+<link rel="icon" href="/static/logo.svg" type="image/svg+xml" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Sec-Agent" />
+<meta property="og:title" content="Sec-Agent — SOC" />
+<meta property="og:description" content="Assume prompt injection can succeed — stop the compromised agent from turning it into real-world actions." />
+<meta property="og:url" content="https://sec-agent.naurzalinov.me/soc" />
+<meta name="twitter:card" content="summary" />
+<link rel="stylesheet" href="/static/brand.css" />
+
 <style>
   :root {
     --bg: #0f1117; --panel: #171a23; --panel-2: #0e1016; --border: #272b36; --text: #e6e8ee;
     --muted: #9aa3b2; --accent: #6ea8fe; --sec: #b48cff;
     /* Status palette (fixed, validated for the dark surface) — always paired with icon + label. */
-    --good: #0ca30c; --warning: #fab219; --critical: #d03b3b;
+    --good: #3FC98B; --warning: #F5B74E; --critical: #F0556F;
     --series: #3987e5;  /* single-series bars */
     --grid: #232733;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 15px/1.5 -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  body { margin: 0; font: 15px/1.5 var(--sans); background: var(--bg); color: var(--text); }
   header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
   header h1 { margin: 0; font-size: 18px; }
   header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
@@ -72,11 +83,11 @@
   tbody tr { cursor: pointer; } tbody tr:hover { background: #1c202b; }
   .tblwrap { overflow-x: auto; }
   .pill { display: inline-flex; gap: 5px; align-items: center; padding: 1px 9px; border-radius: 999px; font-weight: 700; font-size: 11px; letter-spacing: .04em; white-space: nowrap; }
-  .p-DENY { color: var(--critical); border: 1px solid var(--critical); background: rgba(208,59,59,.12); }
-  .p-APPROVAL { color: var(--warning); border: 1px solid var(--warning); background: rgba(250,178,25,.10); }
-  .p-ALLOW { color: var(--good); border: 1px solid var(--good); background: rgba(12,163,12,.12); }
+  .p-DENY { color: var(--critical); border: 1px solid var(--critical); background: rgba(240,85,111,.12); }
+  .p-APPROVAL { color: var(--warning); border: 1px solid var(--warning); background: rgba(245,183,78,.10); }
+  .p-ALLOW { color: var(--good); border: 1px solid var(--good); background: rgba(63,201,139,.12); }
   .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 5px; background: #2a2f3a; color: var(--muted); margin: 1px 3px 1px 0; }
-  code { font-family: ui-monospace, monospace; font-size: 12px; color: var(--text); word-break: break-word; }
+  code { font-family: var(--mono); font-size: 12px; color: var(--text); word-break: break-word; }
 
   #detail { border-left: 3px solid var(--accent); }
   #detail pre { background: var(--panel-2); border: 1px solid var(--border); border-radius: 7px; padding: 10px; font-size: 12px;
@@ -84,7 +95,7 @@
   #detail .kv { font-size: 13.5px; margin: 4px 0; }
   #detail .kv b { color: var(--muted); font-weight: 500; display: inline-block; min-width: 130px; }
   .ck { margin-top: 4px; font-size: 12.5px; } .ck td { padding: 4px 6px; }
-  .ck-i { width: 22px; text-align: center; font-weight: 700; } .ck-id { width: 42px; color: var(--muted); font-family: ui-monospace, monospace; }
+  .ck-i { width: 22px; text-align: center; font-weight: 700; } .ck-id { width: 42px; color: var(--muted); font-family: var(--mono); }
   .ck-pass { color: var(--good); } .ck-flag { color: var(--warning); } .ck-fail { color: var(--critical); } .ck-na, .ck-not_checked { color: var(--muted); }
   .close { background: #2a2f3a; color: var(--text); border: 0; border-radius: 7px; padding: 6px 12px; font: inherit; cursor: pointer; }
 </style>
@@ -92,7 +103,7 @@
 <body>
 <header>
   <div>
-    <h1>Sec-Agent · Security Operations</h1>
+    <h1><img class="mark" src="/static/logo.svg" alt="" />Sec-Agent · Security Operations</h1>
     <p>Every decision the controller made — what was attacked, what stopped it, and what a human approved.</p>
   </div>
   <nav><a href="/">Controller</a><a href="/rules">Rules</a><a href="/soc" class="on">SOC</a><a href="/batch">Batch</a></nav>

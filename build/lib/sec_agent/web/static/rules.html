@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sec-Agent — Policy Rules</title>
+<meta name="description" content="Sec-Agent — an AI security controller that lets a compromised LLM agent propose actions but never execute unauthorized ones." />
+<meta name="theme-color" content="#0f1117" />
+<link rel="icon" href="/static/logo.svg" type="image/svg+xml" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Sec-Agent" />
+<meta property="og:title" content="Sec-Agent — Policy Rules" />
+<meta property="og:description" content="Assume prompt injection can succeed — stop the compromised agent from turning it into real-world actions." />
+<meta property="og:url" content="https://sec-agent.naurzalinov.me/rules" />
+<meta name="twitter:card" content="summary" />
+<link rel="stylesheet" href="/static/brand.css" />
+
+<style>
+  :root {
+    --bg: #0f1117; --panel: #171a23; --panel-2: #0e1016; --border: #272b36; --text: #e6e8ee;
+    --muted: #9aa3b2; --accent: #6ea8fe; --sec: #b48cff;
+    --allow: #3FC98B; --approval: #F5B74E; --deny: #F0556F;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 var(--sans); background: var(--bg); color: var(--text); }
+  header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 18px; }
+  header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+  nav a { color: var(--muted); text-decoration: none; margin-left: 16px; font-size: 14px; }
+  nav a.on, nav a:hover { color: var(--text); }
+  main { padding: 24px; max-width: 980px; margin: 0 auto; display: grid; gap: 16px; }
+  @media (max-width: 600px) { main { padding: 16px; } header { padding: 16px; } nav a { margin: 0 16px 0 0; } }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px; min-width: 0; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .hidden { display: none !important; }
+  .bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .bar .grow { flex: 1; }
+  button { background: var(--accent); color: #0b1020; border: 0; border-radius: 7px; padding: 9px 14px; font: inherit; font-weight: 600; cursor: pointer; }
+  button.ghost { background: #2a2f3a; color: var(--text); font-weight: 500; }
+  button.danger { background: transparent; color: var(--deny); border: 1px solid var(--deny); font-weight: 500; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  input[type=text], input[type=password] { background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 7px; padding: 8px 10px; font: inherit; min-width: 0; }
+  #rules { display: grid; gap: 16px; }
+  .rule { display: grid; grid-template-columns: 36px 1fr; gap: 14px; }
+  .num { width: 32px; height: 32px; border-radius: 50%; background: var(--panel-2); border: 1px solid var(--border);
+         display: grid; place-items: center; font-weight: 700; color: var(--sec); }
+  .rule h2 { margin: 2px 0 2px; font-size: 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .rule .desc { color: var(--muted); font-size: 13.5px; margin: 0 0 10px; }
+  .pill { display: inline-block; padding: 1px 9px; border-radius: 999px; font-weight: 700; font-size: 11px; letter-spacing: .04em; }
+  .LABEL { background: rgba(180,140,255,.13); color: var(--sec); border: 1px solid var(--sec); }
+  select { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 7px 10px; font: inherit; }
+  .DENY { background: rgba(240,85,111,.15); color: var(--deny); border: 1px solid var(--deny); }
+  .APPROVAL { background: rgba(245,183,78,.13); color: var(--approval); border: 1px solid var(--approval); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px;
+          font-family: var(--mono); font-size: 12.5px; display: inline-flex; align-items: center; gap: 6px; }
+  .chip.new { border-color: var(--allow); }
+  .chip button { background: none; color: var(--muted); padding: 0 2px; font-weight: 400; line-height: 1; }
+  .chip button:hover { color: var(--deny); }
+  .add { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .add input { flex: 1; min-width: 160px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; table-layout: fixed; }
+  td, th { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; word-break: break-word; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td input { width: 100%; font-family: var(--mono); font-size: 12.5px; }
+  .sub { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); }
+  .sub h3 { font-size: 13px; margin: 0 0 4px; color: var(--muted); font-weight: 600; }
+  .note { border-left: 3px solid var(--sec); padding: 4px 0 4px 12px; font-size: 13.5px; color: var(--muted); }
+  .note b { color: var(--text); }
+  #msg.ok { color: var(--allow); } #msg.err { color: var(--deny); }
+  .editonly { display: none; } body.editing .editonly { display: revert; } body.editing .add.editonly { display: flex; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1><img class="mark" src="/static/logo.svg" alt="" />Sec-Agent · Policy rules</h1>
+    <p>The fixed, non-LLM checks every proposed action must pass — in the order they run.</p>
+  </div>
+  <nav><a href="/">Controller</a><a href="/rules" class="on">Rules</a><a href="/soc">SOC</a><a href="/batch">Batch</a></nav>
+</header>
+
+<main>
+  <section class="panel">
+    <div class="bar">
+      <div class="grow muted" id="meta">Loading…</div>
+      <button id="editBtn" class="ghost">Edit rules</button>
+    </div>
+    <div id="editBar" class="bar hidden" style="margin-top:12px">
+      <input id="adminToken" type="password" placeholder="Admin password" autocomplete="current-password" />
+      <button id="saveBtn">Save changes</button>
+      <button id="cancelBtn" class="ghost">Discard</button>
+      <span class="grow"></span>
+      <button id="resetBtn" class="danger">Reset to defaults</button>
+    </div>
+    <div id="msg" class="muted" style="margin-top:8px"></div>
+  </section>
+
+  <section class="panel note">
+    The <b>logic</b> of each rule is code and cannot be edited here — only the lists it checks against.
+    The final decision is the <b>stricter</b> of these rules and the security LLM, so the LLM can tighten a rule but never loosen it.
+    A <span class="pill DENY">DENY</span> can't be overridden, not even by a human.
+    <span class="pill APPROVAL">APPROVAL</span> waits for a person to approve.
+  </section>
+
+  <div id="rules"></div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const store = { get(k) { try { return sessionStorage.getItem(k) || ""; } catch { return ""; } },
+                set(k, v) { try { sessionStorage.setItem(k, v); } catch {} } };
+
+// Rules in the order nodes/policy.py evaluates them.
+const RULES = [
+  { key: "allowed_tools", title: "Allowed tools", decision: "DENY", kind: "list", placeholder: "tool name",
+    desc: "The agent may only propose these tools. Any other tool is refused outright (least privilege)." },
+  { key: "denied_path_substrings", title: "Forbidden resources", decision: "DENY", kind: "list", placeholder: "e.g. .ssh",
+    desc: "If any argument of an action contains one of these, it is refused — whatever the LLM says.",
+    sub: { key: "output_only_tools", title: "Exempt: output-only tools", placeholder: "tool name",
+           desc: "These only show text to the user and touch no resource, so their text is not checked (an answer may quote “~/.ssh/…” when warning you)." } },
+  { key: "allowed_email_domains", title: "Email only to company domains", decision: "DENY", kind: "list", placeholder: "e.g. ourco.example",
+    desc: "send_email to any other domain is refused as data leaving the company." },
+  { key: "allowed_http_hosts", title: "Web requests only to allowed hosts", decision: "DENY", kind: "list", placeholder: "e.g. api.ourco.example",
+    desc: "http_request may only reach these hosts and their subdomains; any other URL is refused as data leaving the company." },
+  { key: "approval_required_tools", title: "Always needs a human", decision: "APPROVAL", kind: "list", placeholder: "tool name",
+    desc: "High-impact actions (e.g. deletions, deployments, money movement) always wait for a person — even when the request is clean." },
+  { key: "consequential_tools", title: "Needs a human when influenced by untrusted content", decision: "APPROVAL", kind: "list", placeholder: "tool name",
+    desc: "If one of these is proposed because of a document, webpage or other untrusted input, a person must approve it." },
+  { key: "jev_suspicious_level", title: "Jev: mark input suspicious at risk level", decision: "LABEL", kind: "level",
+    desc: "Jev (TypeSafe AI) rates each untrusted input 0–100 for prompt-injection risk. At or above this level the input is labeled suspicious (a low score never makes it trusted). Advisory: it informs the security LLM; the rules above still decide.",
+    extra: { key: "jev_signal_threshold", title: "…or when any single signal is this strong",
+             desc: "Also labeled suspicious if one decisive signal — instructions to an AI, redirecting data/money, or asking for secrets — reaches this probability, even when the overall level is borderline. Urgency/pressure alone never counts." } },
+];
+
+let saved = null, draft = null, tools = [], editable = false;
+
+function render() {
+  const r = draft;
+  $("rules").innerHTML = RULES.map((rule, i) => `
+    <section class="panel rule">
+      <div class="num">${i + 1}</div>
+      <div>
+        <h2>${esc(rule.title)} <span class="pill ${rule.decision}">${rule.decision}</span></h2>
+        <p class="desc">${esc(rule.desc)}</p>
+        ${rule.kind === "level" ? levelEditor(rule.key, r[rule.key])
+          : listEditor(rule.key, r[rule.key], rule.placeholder)}
+        ${rule.extra ? `<div class="sub"><h3>${esc(rule.extra.title)}</h3><p class="desc">${esc(rule.extra.desc)}</p>
+          ${signalEditor(rule.extra.key, r[rule.extra.key])}</div>` : ""}
+        ${rule.sub ? `<div class="sub"><h3>${esc(rule.sub.title)}</h3><p class="desc">${esc(rule.sub.desc)}</p>
+          ${listEditor(rule.sub.key, r[rule.sub.key], rule.sub.placeholder)}</div>` : ""}
+      </div>
+    </section>`).join("");
+}
+function listEditor(key, items, placeholder) {
+  const before = new Set(saved[key]);
+  return `<div class="chips">${items.map((v, i) =>
+      `<span class="chip ${before.has(v) ? "" : "new"}">${esc(v)}<button class="editonly" title="Remove" data-del="${key}" data-i="${i}">×</button></span>`).join("")
+      || '<span class="muted">(empty)</span>'}</div>
+    <div class="add editonly"><input type="text" list="${key.includes("tools") ? "toolList" : ""}" placeholder="${esc(placeholder)}" data-addin="${key}" />
+      <button class="ghost" data-add="${key}">Add</button></div>`;
+}
+function levelEditor(key, value) {
+  return `<span class="view chip">≥ ${esc(value)}/100</span>
+    <select class="editonly" data-level="${key}">${[0, 20, 40, 60, 80, 100].map(l =>
+      `<option value="${l}" ${l === value ? "selected" : ""}>≥ ${l}/100</option>`).join("")}</select>`;
+}
+function signalEditor(key, value) {
+  const opts = [0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 0.99];
+  return `<span class="view chip">≥ ${esc(value)}</span>
+    <select class="editonly" data-signal="${key}">${opts.map(v =>
+      `<option value="${v}" ${v === value ? "selected" : ""}>≥ ${v}</option>`).join("")}</select>`;
+}
+function viewMode() {
+  document.querySelectorAll(".view").forEach(e => e.classList.toggle("hidden", document.body.classList.contains("editing")));
+}
+
+$("rules").addEventListener("click", (e) => {
+  const t = e.target.closest("button"); if (!t) return;
+  if (t.dataset.del) draft[t.dataset.del].splice(+t.dataset.i, 1);
+  else if (t.dataset.add) {
+    const inp = document.querySelector(`[data-addin="${t.dataset.add}"]`), v = inp.value.trim();
+    if (v && !draft[t.dataset.add].includes(v)) draft[t.dataset.add].push(v);
+  } else return;
+  render(); viewMode();
+});
+$("rules").addEventListener("change", (e) => {
+  if (e.target.dataset.level) draft[e.target.dataset.level] = +e.target.value;
+  if (e.target.dataset.signal) draft[e.target.dataset.signal] = +e.target.value;
+});
+$("rules").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && e.target.dataset.addin) document.querySelector(`[data-add="${e.target.dataset.addin}"]`).click();
+});
+
+function msg(text, cls) { $("msg").textContent = text; $("msg").className = cls || "muted"; }
+function setEditing(on) {
+  document.body.classList.toggle("editing", on);
+  $("editBar").classList.toggle("hidden", !on); $("editBtn").classList.toggle("hidden", on);
+  if (!on) draft = structuredClone(saved);
+  render(); viewMode();
+}
+
+async function call(method, url, body) {
+  const r = await fetch(url, { method, headers: { "Content-Type": "application/json", "X-Admin-Token": $("adminToken").value },
+                               body: body ? JSON.stringify(body) : undefined });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail || r.statusText));
+  return data;
+}
+function apply(data) {
+  saved = data.rules; draft = structuredClone(saved);
+  $("meta").textContent = saved.updated_at ? `Last changed ${new Date(saved.updated_at).toLocaleString()}` : "Factory defaults (never edited)";
+}
+
+$("editBtn").addEventListener("click", () => {
+  if (!editable) { msg("Editing is disabled on this server (no admin password configured).", "err"); return; }
+  $("adminToken").value = store.get("secAgentAdmin"); msg(""); setEditing(true);
+});
+$("cancelBtn").addEventListener("click", () => { msg(""); setEditing(false); });
+$("saveBtn").addEventListener("click", async () => {
+  $("saveBtn").disabled = true;
+  try {
+    apply(await call("PUT", "/api/rules", draft));
+    store.set("secAgentAdmin", $("adminToken").value);
+    msg("Saved. New rules apply to the next action.", "ok"); setEditing(false);
+  } catch (err) { msg("Not saved: " + err.message, "err"); }
+  finally { $("saveBtn").disabled = false; }
+});
+$("resetBtn").addEventListener("click", async () => {
+  if (!confirm("Replace all rules with the factory defaults?")) return;
+  try { apply(await call("POST", "/api/rules/reset")); store.set("secAgentAdmin", $("adminToken").value);
+        msg("Reset to defaults.", "ok"); setEditing(false); }
+  catch (err) { msg("Not reset: " + err.message, "err"); }
+});
+
+(async () => {
+  try {
+    const data = await (await fetch("/api/rules")).json();
+    tools = data.tools; editable = data.editable;
+    document.body.insertAdjacentHTML("beforeend",
+      `<datalist id="toolList">${tools.map(t => `<option value="${esc(t)}">`).join("")}</datalist>`);
+    apply(data); render(); viewMode();
+    if (!editable) $("editBtn").title = "Editing is disabled on this server";
+  } catch (err) { msg("Could not load rules: " + err.message, "err"); }
+})();
+</script>
+</body>
+</html>
