@@ -393,6 +393,8 @@ async function run() {
     }
     flush();
     const m = evaluate();
+    // Bring the comparison with the CSV labels into view — it's the point of a labeled run.
+    if (labeledRun()) $("evalPanel").scrollIntoView({ behavior: "smooth", block: "start" });
     $("status").textContent = runLabels.length
       ? `Done — accuracy ${pct(m.TP + m.TN, m.N)} · ${m.TP} TP · ${m.FP} FP · ${m.TN} TN · ${m.FN} FN`
       : `Done — ${results.filter(r => r.injection).length} of ${results.length} predicted as prompt injection`;
