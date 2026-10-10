@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from ..config import settings
 from ..models import ContextItem, Decision, ProposedAction, Taint, Trust
 from ..nodes.policy import evaluate
-from ..tools import REGISTRY
+from ..tools import REGISTRY, invoke
 
 app = FastAPI(title="Sec-Agent Execution Proxy", version="0.1.0")
 
@@ -38,6 +38,8 @@ class ExecuteActionRequest(BaseModel):
     approve: bool = False
     # The controller's claimed decision — advisory only; we re-decide below.
     claimed_decision: str = "ALLOW"
+    # Pasted document content, only for a read_document call that names it by ID.
+    documents: dict[str, str] = Field(default_factory=dict)
 
 
 class ExecuteActionResponse(BaseModel):
@@ -98,15 +100,14 @@ def execute_action(
             executed=False, proxy_decision=decision.value, audit=audit
         )
 
-    fn = REGISTRY.get(req.action.tool)
-    if fn is None:
+    if req.action.tool not in REGISTRY:
         audit.append(f"[proxy-service] refused: unknown tool '{req.action.tool}'")
         return ExecuteActionResponse(
             executed=False, proxy_decision="DENY", audit=audit
         )
 
     try:
-        result = fn(**req.action.arguments)
+        result = invoke(req.action.tool, req.action.arguments, req.documents)
     except Exception as exc:  # report, never silently drop
         audit.append(f"[proxy-service] tool '{req.action.tool}' errored: {exc}")
         return ExecuteActionResponse(

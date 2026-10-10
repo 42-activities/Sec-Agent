@@ -47,7 +47,8 @@ def evaluate(action: ProposedAction, items: list[ContextItem]) -> tuple[Decision
         return Decision.DENY, reasons
 
     # 2. Hard denylist: sensitive resources are never reachable, whatever the LLM says.
-    denied = _touches_denied_path(action)
+    #    Output-only tools reach no resource, so their text is not a resource reference.
+    denied = [] if action.tool in settings.output_only_tools else _touches_denied_path(action)
     if denied:
         reasons.append(f"argument references denied resource(s): {', '.join(denied)}")
         return Decision.DENY, reasons

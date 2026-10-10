@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
-from .models import AgentState, Decision
-from .tools import REGISTRY
+from .models import AgentState, Decision, Trust
+from .tools import REGISTRY, invoke
 
 # A human-approval callback: given the state, return True to proceed. Default
 # denies (fail-closed). The demo/CLI can inject an interactive prompt.
@@ -44,13 +44,14 @@ def execution_proxy_node(
             return {"execution_result": None, "audit": audit}
         audit.append(f"[proxy] human approved {action.tool}")
 
-    fn = REGISTRY.get(action.tool)
-    if fn is None:
+    if action.tool not in REGISTRY:
         audit.append(f"[proxy] refused: unknown tool '{action.tool}'")
         return {"execution_result": None, "audit": audit}
 
+    documents = {i.id: i.content for i in state.get("context_items", [])
+                 if i.trust != Trust.TRUSTED}
     try:
-        result = fn(**action.arguments)
+        result = invoke(action.tool, action.arguments, documents)
     except Exception as exc:  # tool errors are reported, never silently dropped
         audit.append(f"[proxy] tool '{action.tool}' errored: {exc}")
         return {"execution_result": None, "audit": audit}

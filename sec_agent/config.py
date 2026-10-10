@@ -43,10 +43,14 @@ class Settings(BaseSettings):
     ]
     # Tools the agent is permitted to propose at all (least privilege).
     allowed_tools: list[str] = [
-        "read_document", "read_file", "write_file", "send_email", "http_request",
+        "respond_to_user", "read_document", "read_file", "write_file", "send_email", "http_request",
     ]
     # Consequential tools: if influenced by untrusted data, require human approval.
     consequential_tools: list[str] = ["send_email", "http_request", "write_file"]
+    # Output-only tools: they touch no resource and only reach the trusted user, so the
+    # resource denylist does not apply to their free text (an answer may legitimately
+    # say "this document asked me to read ~/.ssh/id_ed25519").
+    output_only_tools: list[str] = ["respond_to_user"]
 
 
 settings = Settings()

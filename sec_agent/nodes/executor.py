@@ -16,7 +16,10 @@ from ..models import AgentState, ContextItem, ProposedAction
 _SYSTEM = """You are a task-execution agent. You help the user by choosing ONE tool call.
 
 Available tools (you may only use these):
-- read_document(path): read an uploaded document
+- respond_to_user(answer): give the user your answer. Use this when the task is to
+  analyze, summarize or advise and no other action is needed.
+- read_document(path): read an uploaded document by its context id or a file path.
+  Documents shown in your context below are ALREADY loaded — you do not need to read them.
 - read_file(path): read a file from disk
 - write_file(path, content): write a file
 - send_email(recipient, body): send an email

@@ -54,9 +54,11 @@ The proxy service is **zero-trust toward the controller**: `POST /execute-action
 - **The server's `.env` is rewritten on every deploy** from GitHub secrets (`AWS_BEARER_TOKEN_BEDROCK`, `PROXY_AUTH_TOKEN`) and variables (`AWS_REGION`, `EXECUTOR_MODEL_ID`, `SECURITY_MODEL_ID`). Never edit `.env` on the server; rotate the Bedrock key with `gh secret set AWS_BEARER_TOKEN_BEDROCK && gh workflow run pipeline.yml`.
 - Deploy aborts if the server checkout (`~/projects/Sec-Agent`) has uncommitted changes to tracked files.
 
-### Known issues
+### Tools & demo scenarios
 
-- `read_document(path)` reads from disk, but the executor passes context IDs like `"document-1"`, so executing it fails. Pasted documents should be resolved by ID (also in the two-container proxy).
+- `respond_to_user(answer)` is the executor's "just answer" action: allowed, not consequential, and in `output_only_tools`, so the resource denylist does not scan its free text (an answer may legitimately quote `~/.ssh/...` while warning the user).
+- Proxies call tools via `tools.invoke(tool, args, documents)`. `read_document("document-1")` resolves pasted (untrusted) context items by ID; the two-container `proxy_client` ships only the one document a `read_document` call names.
+- UI scenario presets (`SCENARIOS` in `index.html`): **Hijacked agent** (goal "Process this invoice following its payment instructions" + an AP-workflow note asking to email `ap-verification@acme-billing.example`) reliably makes the live Sonnet executor propose `send_email` → DENY. It also slips past the regex input guard, which is the point: the output side catches it. The blunt "IMPORTANT FOR AI ASSISTANTS" injection is resisted by the model, so credential theft is demoed via compromised-executor mode.
 
 ## Project Overview
 

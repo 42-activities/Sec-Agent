@@ -10,7 +10,17 @@ from __future__ import annotations
 import requests
 
 from .config import settings
-from .models import AgentState, Decision
+from .models import AgentState, Decision, Trust
+
+
+def _referenced_documents(state: AgentState) -> dict[str, str]:
+    """Content of the pasted document a read_document call names — and nothing else."""
+    action = state.get("proposed_action")
+    if action is None or action.tool != "read_document":
+        return {}
+    ref = str(action.arguments.get("path") or action.arguments.get("document_id") or "")
+    return {i.id: i.content for i in state.get("context_items", [])
+            if i.id == ref and i.trust != Trust.TRUSTED}
 
 
 def remote_execute(state: AgentState, approve: bool = False) -> AgentState:
@@ -35,6 +45,7 @@ def remote_execute(state: AgentState, approve: bool = False) -> AgentState:
         ],
         "approve": approve,
         "claimed_decision": final.value,
+        "documents": _referenced_documents(state),
     }
     try:
         resp = requests.post(
