@@ -28,6 +28,10 @@ def _touches_denied_path(action: ProposedAction) -> list[str]:
     return hits
 
 
+def _norm_iban(value: object) -> str:
+    return "".join(str(value).split()).upper()
+
+
 def _influenced_by_untrusted(action: ProposedAction, items: list[ContextItem]) -> bool:
     by_id = {i.id: i for i in items}
     for sid in action.source_ids:
@@ -53,10 +57,37 @@ def evaluate(action: ProposedAction, items: list[ContextItem]) -> tuple[Decision
         reasons.append(f"argument references denied resource(s): {', '.join(denied)}")
         return Decision.DENY, reasons
 
+    # 3. Payments only to bank details on file (vendor master data), never to ones
+    #    taken from a document — the classic "our bank account changed" fraud.
+    if action.tool == "pay_invoice":
+        payee = str(action.arguments.get("payee", "")).strip()
+        on_file = _norm_iban(settings.known_payees.get(payee, ""))
+        if not on_file:
+            reasons.append(f"payee '{payee}' is not in the vendor master data")
+            return Decision.DENY, reasons
+        if _norm_iban(action.arguments.get("iban", "")) != on_file:
+            reasons.append(f"IBAN does not match the account on file for '{payee}' "
+                           f"-> possible bank-details fraud; verify out of band")
+            return Decision.DENY, reasons
+
+    # Outbound email only to company domains — no exfiltration to arbitrary inboxes.
+    if action.tool == "send_email":
+        recipient = str(action.arguments.get("recipient", "")).strip().lower()
+        domain = recipient.rsplit("@", 1)[-1] if "@" in recipient else ""
+        if domain not in settings.allowed_email_domains:
+            reasons.append(f"recipient domain '{domain or recipient}' is outside the allowed "
+                           f"email domains -> external data egress")
+            return Decision.DENY, reasons
+
     decision = Decision.ALLOW
     influenced = _influenced_by_untrusted(action, items)
 
-    # 3. Consequential action influenced by untrusted data -> human approval.
+    # 4. High-impact actions (payments) always go to a human, even from a clean request.
+    if action.tool in settings.approval_required_tools:
+        reasons.append(f"'{action.tool}' is a high-impact action -> always requires human approval")
+        decision = most_restrictive(decision, Decision.APPROVAL)
+
+    # 5. Consequential action influenced by untrusted data -> human approval.
     if action.tool in settings.consequential_tools and influenced:
         reasons.append(
             f"consequential tool '{action.tool}' was influenced by untrusted/tainted "

@@ -67,3 +67,26 @@ def test_proxy_service_reads_pasted_document(monkeypatch):
     )
     assert r.status_code == 200
     assert r.json()["executed"] and r.json()["result"] == DOC
+
+
+def test_file_tools_are_sandboxed(tmp_path, monkeypatch):
+    import pytest
+
+    monkeypatch.setattr(settings, "files_root", str(tmp_path))
+    invoke("write_file", {"path": "config/app.yaml", "content": "request_timeout: 30"})
+    assert invoke("read_file", {"path": "config/app.yaml"}) == "request_timeout: 30"
+    assert (tmp_path / "config/app.yaml").exists()
+    # Absolute paths are re-rooted inside the sandbox, never read from the real filesystem.
+    with pytest.raises(FileNotFoundError):
+        invoke("read_file", {"path": "/proc/self/environ"})
+    with pytest.raises(PermissionError):
+        invoke("read_file", {"path": "../../etc/passwd"})
+
+
+def test_email_only_to_company_domains():
+    ok, _ = evaluate(ProposedAction(tool="send_email", arguments={"recipient": "hiring@ourco.example", "body": "x"},
+                                    reason="r", source_ids=["user-request"], original_goal="g"), _items())
+    bad, reasons = evaluate(ProposedAction(tool="send_email", arguments={"recipient": "talent-sync@recruit-hub.example", "body": "x"},
+                                           reason="r", source_ids=["document-1"], original_goal="g"), _items())
+    assert ok == Decision.ALLOW
+    assert bad == Decision.DENY and any("egress" in r for r in reasons)

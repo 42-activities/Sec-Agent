@@ -44,9 +44,21 @@ class Settings(BaseSettings):
     # Tools the agent is permitted to propose at all (least privilege).
     allowed_tools: list[str] = [
         "respond_to_user", "read_document", "read_file", "write_file", "send_email", "http_request",
+        "pay_invoice",
     ]
     # Consequential tools: if influenced by untrusted data, require human approval.
-    consequential_tools: list[str] = ["send_email", "http_request", "write_file"]
+    consequential_tools: list[str] = ["send_email", "http_request", "write_file", "pay_invoice"]
+    # High-impact tools (money movement): ALWAYS need a human, whatever the provenance
+    # and whatever the security LLM says. The LLM can tighten this to DENY, never loosen it.
+    approval_required_tools: list[str] = ["pay_invoice"]
+    # Vendor master data: the ONLY bank accounts payments may go to. A document claiming
+    # "our bank details have changed" cannot add to this — it must be verified out of band.
+    known_payees: dict[str, str] = {"Acme GmbH": "DE89370400440532013000"}
+    # Outbound email only to these domains (data-egress control).
+    allowed_email_domains: list[str] = ["ourco.example"]
+    # read_file / write_file are confined to this directory (the proxy refuses anything
+    # that resolves outside it, e.g. /proc/self/environ or ../../etc/passwd).
+    files_root: str = "/tmp/sec-agent-files"
     # Output-only tools: they touch no resource and only reach the trusted user, so the
     # resource denylist does not apply to their free text (an answer may legitimately
     # say "this document asked me to read ~/.ssh/id_ed25519").
