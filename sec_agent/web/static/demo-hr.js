@@ -114,6 +114,53 @@ async function decide(pfx, approve, t0, bar) {
   } catch (err) { appendOutcome(pfx, `<div class="err">${esc(err.message)}</div>`); }
 }
 
+// ---------------- human review of flagged applications ----------------
+function renderReview(pfx, ev) {
+  const st = runState[pfx];
+  st.choice = {}; st.seconds = {}; st.shownAt = performance.now();
+  st.emails.forEach(e => { st.choice[e.id] = !ev.flagged.includes(e.id); });   // clean = keep
+  ev.flagged.forEach(id => {
+    const cell = $(pfx + "-rs-" + id); if (!cell) return;
+    const bar = document.createElement("div"); bar.className = "choice";
+    const mk = (label, keep) => {
+      const b = document.createElement("button"); b.type = "button"; b.textContent = label;
+      b.className = keep ? "ch-keep" : "ch-drop on";
+      b.addEventListener("click", (evt) => {
+        evt.stopPropagation();   // don't also toggle the row's CV preview
+        st.choice[id] = keep;
+        st.seconds[id] = Math.round((performance.now() - st.shownAt) / 100) / 10;
+        bar.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+        timer.textContent = `decided in ${st.seconds[id].toFixed(1)} s`;
+      });
+      return b;
+    };
+    const timer = document.createElement("span"); timer.className = "muted ch-time";
+    bar.append(mk("Exclude", false), mk("Include anyway", true), timer);
+    cell.appendChild(bar);
+  });
+  const go = document.createElement("button"); go.type = "button"; go.className = "go-review";
+  go.textContent = "Continue with my decisions";
+  go.addEventListener("click", () => continueReview(pfx, go));
+  const o = $(pfx + "-outcome"); o.classList.remove("hidden"); o.innerHTML = "";
+  const note = document.createElement("div"); note.className = "muted";
+  note.textContent = "Flagged applications are held back. Excluded ones never reach the agent.";
+  o.append(note, go);
+}
+
+async function continueReview(pfx, btn) {
+  const st = runState[pfx];
+  btn.disabled = true;
+  document.querySelectorAll(`#${pfx}-apps .choice button`).forEach(b => b.disabled = true);
+  const include = st.emails.filter(e => st.choice[e.id]).map(e => e.id);
+  try {
+    const r = await fetch("/api/hr/continue", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: st.session_id, include, seconds: st.seconds }) });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+    setSub(pfx, "running…");
+    await readStream(r, ev => handle(pfx, ev));
+  } catch (err) { handle(pfx, { type: "error", detail: err.message }); }
+}
+
 // ---------------- event handling ----------------
 function handle(pfx, ev) {
   const st = runState[pfx]; if (!st) return;
@@ -134,6 +181,16 @@ function handle(pfx, ev) {
       } else {
         (ev.emails || []).forEach(e => setStatus(pfx, e.id, { flagged: e.flagged, reasons: e.reasons }));
       }
+      break;
+    case "review":
+      st.session_id = ev.session_id;
+      setVerdict(pfx, "v-amber", `Review needed — ${ev.flagged.length} flagged application(s)`,
+        "Decide for each flagged application, then continue.");
+      renderReview(pfx, ev);
+      break;
+    case "reviewed":
+      $(pfx + "-outcome").innerHTML = "";
+      addStep(pfx, `human review: kept <b>${ev.kept.length}</b>, excluded <b>${ev.excluded.length}</b>`);
       break;
     case "action":
       st.action = ev.action; renderAction(pfx, ev.action);

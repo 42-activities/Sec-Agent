@@ -80,10 +80,35 @@ def sample_emails(name: str) -> list[dict]:
 
 # --------------------------------- helpers ---------------------------------------
 
+def _name_from_first_line(body: str) -> str:
+    """A CV usually starts with the person's name: "Pierre Richard", or "LENA MOREAU" glued to
+    the next heading when text was copied from a PDF ("LENA MOREAUPerformance …")."""
+    line = next((l.strip() for l in body.splitlines() if l.strip()), "")
+    words = []
+    for w in line.split()[:3]:
+        if len(w) > 1 and w[:2].isupper():
+            # all-caps word; a glued heading starts where an upper letter is followed by lower case
+            cut = next((i for i in range(1, len(w) - 1) if w[i].isupper() and w[i + 1].islower()), None)
+            words.append(w[:cut] if cut else w)
+            if cut:
+                break
+        elif w[:1].isupper() and w[1:].islower():
+            words.append(w)
+        else:
+            break
+    if not 2 <= len(words) <= 3:
+        return ""
+    title = lambda w: "-".join(p.capitalize() for p in w.split("-"))
+    return " ".join(title(w) if w.isupper() else w for w in words)
+
+
 def candidate_name(email: dict) -> str:
     m = re.search(r"^\s*(?:name|candidate)\s*:\s*(.+)$", email.get("body", ""), re.IGNORECASE | re.MULTILINE)
     if m:
         return m.group(1).strip()[:60]
+    first = _name_from_first_line(email.get("body", ""))
+    if first:
+        return first
     m = re.search(r"[—–:-]\s*([A-Z][\w'’-]+(?:\s+[A-Z][\w'’-]+){1,2})\s*$", email.get("subject", ""))
     if m:
         return m.group(1)
@@ -100,7 +125,7 @@ def context_items(goal: str, emails: list[dict], candidates_json: str) -> list[C
     items = [ContextItem(id="user-request", source="recruiter", source_type="user_message",
                          content=goal, trust=Trust.TRUSTED)]
     for n, e in enumerate(emails, 1):
-        items.append(ContextItem(id=f"email-{n}", source=f"{e.get('from', '')} — {e.get('subject', '')}"[:200],
+        items.append(ContextItem(id=e.get("_id", f"email-{n}"), source=f"{e.get('from', '')} — {e.get('subject', '')}"[:200],
                                  source_type="email", content=email_text(e), trust=Trust.UNTRUSTED))
     items.append(ContextItem(id="candidates-db", source="query_candidates_db", source_type="tool_output",
                              content=candidates_json, trust=Trust.TRUSTED))
@@ -159,9 +184,25 @@ def scripted_attack(goal: str, emails: list[dict], candidates: list[dict]) -> Op
     lines += [f"- {c['name']} | {c['email']} | {c['phone']} | {c['stage']} | score {c['score']} | {c['salary_expectation']}"
               for c in candidates]
     lines += [f"- {candidate_name(e)} | {e.get('from', '')}" for e in emails]
+    src = emails[idx].get("_id", f"email-{idx + 1}")
     return ProposedAction(tool="send_email", arguments={"recipient": addr, "body": "\n".join(lines)},
-                          reason=f"(simulated compromised agent) followed the instruction in email-{idx + 1}",
-                          source_ids=[f"email-{idx + 1}", "candidates-db"], original_goal=goal)
+                          reason=f"(simulated compromised agent) followed the instruction in {src}",
+                          source_ids=[src, "candidates-db"], original_goal=goal)
+
+
+def scripted_shortlist(goal: str, emails: list[dict], candidates: list[dict]) -> ProposedAction:
+    """The same scripted agent when no kept email carries an instruction: it does the job it
+    was given — a ranked shortlist, names only, to the internal address in the request."""
+    allowed = set(settings.allowed_email_domains)
+    addrs = re.findall(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", goal)
+    recipient = next((a for a in addrs if a.rsplit("@", 1)[-1].lower() in allowed), "hiring@ourco.example")
+    ranked = [c["name"] for c in sorted(candidates, key=lambda c: -c.get("score", 0))]
+    names = [candidate_name(e) for e in emails] + ranked
+    body = "\n".join(["Ranked shortlist — Senior Backend Engineer", ""] + [f"{i}. {n}" for i, n in enumerate(names, 1)])
+    return ProposedAction(tool="send_email", arguments={"recipient": recipient, "body": body},
+                          reason="(scripted agent) ranked shortlist for the recruiter",
+                          source_ids=[e.get("_id", f"email-{n}") for n, e in enumerate(emails, 1)] + ["candidates-db"],
+                          original_goal=goal)
 
 
 def parse_candidates(result: str) -> list[dict]:

@@ -40,6 +40,14 @@
   button.approve { background: var(--allow); color: var(--on-allow); }
   button.reject { background: transparent; color: var(--deny); border: 1px solid var(--deny); font-weight: 500; }
   button:disabled { opacity: .5; cursor: not-allowed; }
+  .choice { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+  .choice button { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 6px;
+    padding: 4px 9px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .choice button.ch-drop.on { background: var(--allow); color: var(--on-allow); border-color: var(--allow); }
+  .choice button.ch-keep.on { background: var(--deny); color: var(--on-deny); border-color: var(--deny); }
+  .ch-time { font-size: 11.5px; }
+  .go-review { margin-top: 8px; background: var(--accent); color: var(--on-accent); border: 0; border-radius: 7px;
+    padding: 8px 14px; font: inherit; font-weight: 600; cursor: pointer; }
   a.connect { display: inline-block; text-decoration: none; background: var(--raised); color: var(--text);
     border: 1px solid var(--border); border-radius: 7px; padding: 7px 12px; font-size: 13px; font-weight: 500; }
   a.connect:hover, button.connect:hover { border-color: var(--border-strong); }

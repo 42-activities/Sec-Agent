@@ -28,6 +28,7 @@ def build_graph(
     approval_fn: Optional[ApprovalFn] = None,
     include_executor: bool = True,
     execute: bool = True,
+    include_input_guard: bool = True,
 ):
     """Compile the security-controller graph.
 
@@ -45,17 +46,21 @@ def build_graph(
         return execution_proxy_node(state, approval_fn=approval_fn)
 
     g = StateGraph(AgentState)
-    g.add_node("input_guard", input_guard_node)
     g.add_node("security", security_node)
     g.add_node("policy", policy_node)
 
-    g.add_edge(START, "input_guard")
+    # include_input_guard=False: the caller already ran it (e.g. a human reviewed flagged inputs).
+    first = START
+    if include_input_guard:
+        g.add_node("input_guard", input_guard_node)
+        g.add_edge(START, "input_guard")
+        first = "input_guard"
     if include_executor:
         g.add_node("executor", executor_node)
-        g.add_edge("input_guard", "executor")
+        g.add_edge(first, "executor")
         g.add_edge("executor", "security")
     else:
-        g.add_edge("input_guard", "security")
+        g.add_edge(first, "security")
     g.add_edge("security", "policy")
 
     if execute:

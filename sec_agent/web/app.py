@@ -491,6 +491,7 @@ class HRRunRequest(BaseModel):
     source: str = Field("sample", pattern="^(sample|gmail)$")   # synthetic sample inbox, or the Gmail label
     sample: str = Field("poisoned", pattern="^(clean|poisoned)$")
     compromised: bool = False   # scripted compromised agent (obeys the injected email) instead of the live LLM
+    review: bool = True         # ON: pause for a human decision on each flagged application
 
 
 def _hr_tool(tool: str, args: dict, goal: str, protection: bool,
@@ -509,6 +510,90 @@ def _hr_tool(tool: str, args: dict, goal: str, protection: bool,
     if out.get("execution_result") is None:
         raise RuntimeError((out.get("audit") or [f"{tool} failed"])[-1])
     return out["execution_result"], out.get("audit", [])
+
+
+# Runs paused for a human review of flagged applications (session id -> what is needed to resume).
+_HR_PENDING: dict[str, dict] = {}
+
+
+def _hr_decide(line, session_id: str, merged: AgentState, emails: list[dict], candidates: list[dict],
+               goal: str, compromised: bool, source: str):
+    """After screening (and any human review): agent -> security LLM -> policy, streamed."""
+    if compromised:
+        act = (screening.scripted_attack(goal, emails, candidates)
+               or screening.scripted_shortlist(goal, emails, candidates))
+        merged["proposed_action"] = act
+        yield line({"type": "action", "scripted": True, "action": _action_view(act)})
+    graph = build_graph(include_executor=not compromised, execute=False, include_input_guard=False)
+    for chunk in graph.stream(merged, stream_mode="updates"):
+        for node, update in chunk.items():
+            merged.update(update or {})
+            if node == "executor":
+                yield line({"type": "action", "scripted": False, "action": _action_view(merged.get("proposed_action"))})
+            elif node == "security":
+                yield line({"type": "security", "security": _view("", merged).security})
+            elif node == "policy":
+                fd, pd = merged.get("final_decision"), merged.get("policy_decision")
+                yield line({"type": "decision", "final_decision": fd.value if fd else None,
+                            "policy_decision": pd.value if pd else None,
+                            "reasons": merged.get("policy_reasons", []),
+                            "checks": [c.model_dump(mode="json") for c in merged.get("checks", [])
+                                       if c.stage == "action"]})
+    _SESSIONS[session_id] = merged
+    if source == "sample":  # synthetic data only in the public SOC log
+        event_log.record_analysis(session_id, merged, compromised=compromised)
+    fd = merged.get("final_decision")
+    yield line({"type": "done", "session_id": session_id, "final_decision": fd.value if fd else None,
+                "audit": merged.get("audit", [])})
+
+
+class HRContinueRequest(BaseModel):
+    session_id: str
+    include: list[str] = Field(default_factory=list)       # application ids the human keeps
+    seconds: dict[str, float] = Field(default_factory=dict)  # per application: time to decide
+
+
+@app.post("/api/hr/continue")
+def hr_continue(req: HRContinueRequest) -> StreamingResponse:
+    """Resume a paused screening run with the human's decision on each application. Excluded
+    applications are removed from the agent's context entirely (quarantined)."""
+    pending = _HR_PENDING.pop(req.session_id, None)
+    if pending is None:
+        raise HTTPException(status_code=404, detail="unknown or expired review")
+    keep = set(req.include)
+    merged: AgentState = pending["state"]
+    flagged = {i.id for i in merged.get("context_items", []) if i.taint.value == "suspicious"}
+    audit = list(merged.get("audit", []))
+    for e in pending["emails"]:
+        verdict = "kept" if e["_id"] in keep else "excluded"
+        if e["_id"] in flagged:
+            verdict = "included anyway" if e["_id"] in keep else "excluded"
+        secs = req.seconds.get(e["_id"])
+        audit.append(f"[human] {e['_id']} ({screening.candidate_name(e)}): {verdict}"
+                     + (f" after {secs:.1f} s" if secs is not None else ""))
+    merged["audit"] = audit
+    merged["context_items"] = [i for i in merged.get("context_items", [])
+                               if not i.id.startswith("email-") or i.id in keep]
+    emails = [e for e in pending["emails"] if e["_id"] in keep]
+
+    def line(event: dict) -> str:
+        return json.dumps(event, default=str) + "\n"
+
+    def stream():
+        yield line({"type": "reviewed", "kept": [e["_id"] for e in emails],
+                    "excluded": [e["_id"] for e in pending["emails"] if e["_id"] not in keep]})
+        if not emails:
+            yield line({"type": "done", "session_id": None, "final_decision": "NONE",
+                        "audit": audit + ["[human] every application excluded — nothing to screen"]})
+            return
+        try:
+            yield from _hr_decide(line, req.session_id, merged, emails, pending["candidates"],
+                                  pending["goal"], pending["compromised"], pending["source"])
+        except Exception as exc:
+            yield line({"type": "error", "detail": f"{type(exc).__name__}: {exc}"[:400]})
+
+    return StreamingResponse(stream(), media_type="application/x-ndjson",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.post("/api/hr/run")
@@ -535,9 +620,11 @@ def hr_run(req: HRRunRequest, sa_gmail: str = Cookie(default="")) -> StreamingRe
                 emails = json.loads(raw).get("emails", [])
             else:
                 emails, audit = screening.sample_emails(req.sample), []
+            for n, e in enumerate(emails, 1):
+                e["_id"] = f"email-{n}"   # stable id, kept even if a human excludes other emails
             yield line({"type": "fetched", "via": "proxy" if req.protection else "direct", "emails": [
                 {"id": f"email-{n}", "subject": e.get("subject", ""), "from": e.get("from", ""), "date": e.get("date", ""),
-                 "candidate": screening.candidate_name(e), "preview": e.get("body", "")[:1200]}
+                 "candidate": screening.candidate_name(e), "preview": e.get("body", "")}
                 for n, e in enumerate(emails, 1)]})
             if not emails:
                 yield line({"type": "error", "detail": f"No emails under the Gmail label '{settings.gmail_screening_label}'."})
@@ -550,7 +637,7 @@ def hr_run(req: HRRunRequest, sa_gmail: str = Cookie(default="")) -> StreamingRe
 
             state: AgentState = {"user_goal": goal, "audit": [*audit, *audit_db],
                                  "context_items": screening.context_items(goal, emails, raw_db)}
-            if req.compromised:
+            if req.compromised and not req.protection:
                 act = screening.scripted_attack(goal, emails, candidates)
                 if act is None:
                     yield line({"type": "error", "detail": "No email here instructs the agent to send data anywhere — "
@@ -560,36 +647,25 @@ def hr_run(req: HRRunRequest, sa_gmail: str = Cookie(default="")) -> StreamingRe
                 yield line({"type": "action", "scripted": True, "action": _action_view(act)})
 
             if req.protection:
+                from ..nodes.input_guard import input_guard_node
                 merged: AgentState = dict(state)  # type: ignore[assignment]
-                graph = build_graph(include_executor=not req.compromised, execute=False)
-                for chunk in graph.stream(state, stream_mode="updates"):
-                    for node, update in chunk.items():
-                        merged.update(update or {})
-                        if node == "input_guard":
-                            by_id = {i.id: i for i in merged.get("context_items", [])}
-                            yield line({"type": "screened", "emails": [
-                                {"id": f"email-{n}", "flagged": by_id[f"email-{n}"].taint.value == "suspicious",
-                                 "reasons": screening.flag_reasons(f"email-{n}", merged),
-                                 "jev_level": ((merged.get("jev_input") or {}).get(f"email-{n}") or {}).get("level")}
-                                for n in range(1, len(emails) + 1)]})
-                        elif node == "executor":
-                            yield line({"type": "action", "scripted": False,
-                                        "action": _action_view(merged.get("proposed_action"))})
-                        elif node == "security":
-                            yield line({"type": "security", "security": _view("", merged).security})
-                        elif node == "policy":
-                            fd, pd = merged.get("final_decision"), merged.get("policy_decision")
-                            yield line({"type": "decision", "final_decision": fd.value if fd else None,
-                                        "policy_decision": pd.value if pd else None,
-                                        "reasons": merged.get("policy_reasons", []),
-                                        "checks": [c.model_dump(mode="json") for c in merged.get("checks", [])
-                                                   if c.stage == "action"]})
-                _SESSIONS[session_id] = merged
-                if req.source == "sample":  # synthetic data only in the public SOC log
-                    event_log.record_analysis(session_id, merged, compromised=req.compromised)
-                fd = merged.get("final_decision")
-                yield line({"type": "done", "session_id": session_id, "final_decision": fd.value if fd else None,
-                            "audit": merged.get("audit", [])})
+                merged.update(input_guard_node(merged))
+                by_id = {i.id: i for i in merged.get("context_items", [])}
+                screened = [{"id": e["_id"], "flagged": by_id[e["_id"]].taint.value == "suspicious",
+                             "reasons": screening.flag_reasons(e["_id"], merged),
+                             "jev_level": ((merged.get("jev_input") or {}).get(e["_id"]) or {}).get("level")}
+                            for e in emails]
+                yield line({"type": "screened", "emails": screened})
+                flagged = [x["id"] for x in screened if x["flagged"]]
+                if flagged and req.review:
+                    _HR_PENDING[session_id] = {"state": merged, "emails": emails, "candidates": candidates,
+                                               "goal": goal, "compromised": req.compromised, "source": req.source}
+                    yield line({"type": "review", "session_id": session_id, "flagged": flagged})
+                    yield line({"type": "done", "session_id": session_id, "final_decision": "REVIEW",
+                                "audit": merged.get("audit", [])})
+                    return
+                yield from _hr_decide(line, session_id, merged, emails, candidates, goal,
+                                      req.compromised, req.source)
             else:
                 yield line({"type": "screened", "unchecked": True})
                 if not req.compromised:
