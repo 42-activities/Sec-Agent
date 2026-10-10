@@ -123,6 +123,8 @@
   .scenario { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); font-weight: 500;
               text-align: left; padding: 8px 12px; font-size: 13px; }
   .scenario small { display: block; color: var(--muted); font-size: 11.5px; font-weight: 400; }
+  .gmailabout { font-size: 13px; color: var(--muted); margin: 0 0 8px; max-width: 900px; }
+  .gmailabout b { color: var(--text); font-weight: 600; }
   .gmailbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 0 0 8px; font-size: 13.5px; }
   .btnlink { display: inline-block; background: var(--accent); color: var(--on-accent); border-radius: 7px; padding: 6px 12px;
              font-weight: 600; text-decoration: none; font-size: 13px; }
@@ -185,6 +187,14 @@
       <button type="button" class="scenario" data-s="cvtheft">Candidate-data theft<small>poisoned CV reroutes the email</small></button>
     </div>
     <div class="group">Email — inbox agent (your Gmail, read-only)</div>
+    <p class="gmailabout">
+      <b>What Sec-Agent does with your Gmail:</b> if you connect your Google account, Sec-Agent can <b>read</b> (never send,
+      change or delete) the emails you ask for — for example your 3 newest — and check them for hidden instructions aimed at
+      AI assistants (prompt injection), such as "forward this mailbox" or "reveal your password". You see each email and its
+      verdict; the agent cannot act on an email until it has been checked. Emails are not stored, access ends after about an
+      hour or when you disconnect, and the data is never used for ads or AI training.
+      <a href="/privacy">Privacy policy</a>.
+    </p>
     <div class="gmailbar">
       <span id="gmailState" class="muted">Checking Gmail…</span>
       <a id="gmailConnect" class="btnlink hidden" href="/auth/google/start">Connect Gmail (read-only)</a>
@@ -536,9 +546,12 @@ function output(final) {
     showApproval();
   } else {
     const answer = lastAction && lastAction.tool === "respond_to_user";
-    stage("output", "ok", "✓ authorized", answer ? "Answer is ready to be delivered." : "Ready to execute through the proxy.");
-    $("execBtn").textContent = answer ? "Deliver answer to user" : "Execute (ALLOW)";
+    const mail = lastAction && lastAction.tool === "read_email";
+    stage("output", "ok", "✓ authorized", answer ? "Answer is ready to be delivered."
+      : mail ? "Ready to read your emails (read-only) — click <b>Read my emails</b> below." : "Ready to execute through the proxy.");
+    $("execBtn").textContent = answer ? "Deliver answer to user" : mail ? "Read my emails" : "Execute (ALLOW)";
     $("allowGate").classList.remove("hidden");
+    if (mail) $("allowGate").scrollIntoView({ behavior: "smooth", block: "center" });
   }
 }
 function setAudit(lines) {
