@@ -60,3 +60,12 @@ def test_limits():
     too_many = ["x"] * (batch.MAX_PROMPTS["full"] + 1)
     assert c.post("/api/batch", json={"prompts": too_many, "mode": "full"}).status_code == 400
     assert c.post("/api/batch", json={"prompts": ["x"], "mode": "bogus"}).status_code == 422
+
+
+def test_each_result_has_prediction_and_explanation():
+    lines = _stream(TestClient(app), PROMPTS, "input")
+    res = {r["index"]: r for r in lines if r["type"] == "result"}
+    assert [res[i]["predicted"] for i in range(4)] == [0, 1, 1, 1]
+    assert res[0]["explanation"].startswith("No injection found")
+    assert res[1]["explanation"].startswith("Prompt injection") and "ignore all previous instructions" in res[1]["explanation"].lower()
+    assert "hidden base64 text" in res[2]["explanation"]

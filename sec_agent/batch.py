@@ -22,7 +22,7 @@ from .graph import build_graph
 from .models import AgentState, ContextItem, Trust
 from .nodes.input_guard import input_guard_node
 
-MAX_PROMPTS = {"input": 500, "full": 25}
+MAX_PROMPTS = {"input": 1000, "full": 25}
 MAX_CHARS = 20_000
 WORKERS = {"input": 8, "full": 3}
 
@@ -35,6 +35,33 @@ def _state(prompt: str) -> AgentState:
         "scan_user_prompt": True,
         "audit": [],
     }
+
+
+_SIGNAL_TEXT = {"jailbreak": "jailbreak attempt", "secrets": "asks for secrets", "redirect": "redirects data/money",
+                "pressure": "pressure/urgency", "ai_instructions": "instructions to an AI"}
+
+
+def explain(injection: bool, found: dict, jev: dict, tool: str | None, final: str | None) -> str:
+    """One plain sentence on why this prompt was (not) classified as injection."""
+    parts = []
+    if jev.get("status") == "ok":
+        sig = [f"{_SIGNAL_TEXT.get(k, k)} {v:.0%}" for k, v in sorted(jev["signals"].items(), key=lambda kv: -kv[1])
+               if v >= 0.5 and k != "ai_instructions"]  # every user prompt "instructs the AI"
+        parts.append(f"Jev risk {jev['level']}/100 ({jev['confidence']:.0%} confident)"
+                     + (f": {', '.join(sig[:3])}" if sig else ""))
+    elif jev:
+        parts.append("Jev unavailable — patterns only")
+    matched = [*found.get("injection", []), *found.get("sensitive", []), *found.get("secrecy", [])]
+    if matched:
+        parts.append("matched " + ", ".join(f"“{m}”" for m in matched[:2]))
+    if found.get("hidden"):
+        parts.append("hidden " + found["hidden"][0])
+    head = "Prompt injection" if injection else "No injection found"
+    if not injection and not matched and not found.get("hidden"):
+        parts.append("no injection patterns or hidden text")
+    if tool:
+        parts.append(f"agent proposed {tool} → {final}")
+    return f"{head} — " + "; ".join(parts) + "."
 
 
 def _summary(index: int, prompt: str, state: AgentState, ms: int) -> dict:
@@ -54,11 +81,14 @@ def _summary(index: int, prompt: str, state: AgentState, ms: int) -> dict:
     action = state.get("proposed_action")
     sec = state.get("security_decision")
     final = state.get("final_decision")
+    injection = item.taint.value == "suspicious"
     return {
+        "predicted": int(injection),
+        "explanation": explain(injection, found, jev, action.tool if action else None, final.value if final else None),
         "index": index,
         "prompt": prompt[:300],
         "chars": len(prompt),
-        "injection": item.taint.value == "suspicious",
+        "injection": injection,
         "detectors": detectors,
         "jev_level": jev.get("level"), "jev_confidence": jev.get("confidence"),
         "jev_signals": jev.get("signals"), "jev_status": jev.get("status"), "jev_reasons": jev.get("reasons"),
