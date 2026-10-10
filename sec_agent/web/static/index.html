@@ -422,8 +422,10 @@ const SIGNAL_LABEL = { ai_instructions: "instructions to an AI", redirect: "redi
 function jevCard(i) {
   const j = i.jev;
   if (j.status !== "ok") return `<div class="jev"><small>Jev unavailable — regex only</small></div>`;
+  const conf = j.confidence == null ? "" :
+    `<small title="How sure Jev is of this risk level (1 = all probability on one level)">· confidence ${(j.confidence * 100).toFixed(0)}%</small>`;
   return `<div class="jev" style="--c:${jevColor(j.level)}">Jev risk <span class="lvl" style="color:${jevColor(j.level)}">${j.level}/100</span>
-    <small>· ${esc(i.id)}</small>
+    ${conf} <small>· ${esc(i.id)}</small>
     <div class="scale">${[0, 20, 40, 60, 80, 100].map(l => `<span class="${l <= j.level ? "on" : ""}"></span>`).join("")}</div></div>`;
 }
 function jevDetail(i) {
