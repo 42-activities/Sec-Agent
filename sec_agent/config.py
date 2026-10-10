@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     # Password for editing rules from the web UI. Empty = editing disabled.
     rules_admin_token: str = ""
 
+    # SOC event log (SQLite). In Docker this lives on a volume so it survives redeploys.
+    events_db: str = "/tmp/sec-agent-events.db"
+
     # --- Jev (TypeSafe AI): prompt-injection risk scoring of untrusted input. ---
     # Optional and advisory; empty key = not used. Untrusted content is sent to TypeSafe.
     typesafe_api_key: str = ""

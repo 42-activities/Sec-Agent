@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field
 
 from ..config import settings
 from .. import rules as rules_store
+from .. import events as event_log
 from .. import jev
 from ..graph import build_graph
 from ..models import AgentState, ContextItem, Decision, ProposedAction, Trust
@@ -186,6 +187,7 @@ def analyze(req: AnalyzeRequest) -> DecisionView:
     result = graph.invoke(state)
     session_id = uuid.uuid4().hex
     _SESSIONS[session_id] = result
+    event_log.record_analysis(session_id, result, compromised=bool(req.force_tool))
     return _view(session_id, result)
 
 
@@ -218,6 +220,7 @@ def analyze_stream(req: AnalyzeRequest) -> StreamingResponse:
             yield line({"type": "error", "detail": f"{type(exc).__name__}: {exc}"})
             return
         _SESSIONS[session_id] = merged
+        event_log.record_analysis(session_id, merged, compromised=bool(req.force_tool))
         yield line({"type": "done", "view": _view(session_id, merged).model_dump()})
 
     # X-Accel-Buffering: tell nginx not to buffer, so events reach the browser as they happen.
@@ -239,6 +242,7 @@ def execute(req: ExecuteRequest) -> DecisionView:
         updated = execution_proxy_node(state, approval_fn=lambda _s: req.approve)
     merged: AgentState = {**state, **updated}
     _SESSIONS[req.session_id] = merged
+    event_log.record_execution(req.session_id, merged, req.approve)
     return _view(req.session_id, merged)
 
 
@@ -290,6 +294,26 @@ def api_reset_rules(x_admin_token: str = Header(default="")) -> dict:
 @app.get("/rules")
 def rules_page() -> FileResponse:
     return FileResponse(_STATIC / "rules.html")
+
+
+# ------------------------------------- SOC ---------------------------------------
+
+@app.get("/api/soc/summary")
+def soc_summary(hours: int = 24) -> dict:
+    return event_log.summary(max(1, min(hours, 24 * 30)))
+
+
+@app.get("/api/soc/events/{session_id}")
+def soc_event(session_id: str) -> dict:
+    ev = event_log.get(session_id)
+    if ev is None:
+        raise HTTPException(status_code=404, detail="unknown event")
+    return ev
+
+
+@app.get("/soc")
+def soc_page() -> FileResponse:
+    return FileResponse(_STATIC / "soc.html")
 
 
 @app.get("/health")

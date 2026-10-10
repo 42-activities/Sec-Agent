@@ -50,9 +50,12 @@ services:
       - SECURITY_MODEL_ID=${SECURITY_MODEL_ID:-us.anthropic.claude-haiku-4-5-20251001-v1:0}
       - WEB_HOST=0.0.0.0   # bind all interfaces inside the container so the port mapping works
       - TYPESAFE_API_KEY=${TYPESAFE_API_KEY:-}   # Jev risk scoring (optional; empty = off)
+      - EVENTS_DB=/data/events.db   # SOC event log, on the volume below
       - PROXY_URL=http://proxy:8001
       - PROXY_AUTH_TOKEN=${PROXY_AUTH_TOKEN:?set PROXY_AUTH_TOKEN in .env}
       # Intentionally NO tool credentials here.
+    volumes:
+      - events-data:/data
     ports:
       - "127.0.0.1:${SEC_AGENT_PORT:-8700}:8000"   # loopback only; 8000 avoided on this shared host
     networks:
@@ -66,3 +69,4 @@ networks:
 
 volumes:
   rules-data:
+  events-data:

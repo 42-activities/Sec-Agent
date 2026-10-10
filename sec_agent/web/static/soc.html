@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sec-Agent — SOC</title>
+<style>
+  :root {
+    --bg: #0f1117; --panel: #171a23; --panel-2: #0e1016; --border: #272b36; --text: #e6e8ee;
+    --muted: #9aa3b2; --accent: #6ea8fe; --sec: #b48cff;
+    /* Status palette (fixed, validated for the dark surface) — always paired with icon + label. */
+    --good: #0ca30c; --warning: #fab219; --critical: #d03b3b;
+    --series: #3987e5;  /* single-series bars */
+    --grid: #232733;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 18px; }
+  header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+  nav a { color: var(--muted); text-decoration: none; margin-left: 16px; font-size: 14px; }
+  nav a.on, nav a:hover { color: var(--text); }
+  main { padding: 20px 24px 40px; max-width: 1280px; margin: 0 auto; display: grid; gap: 16px; }
+  @media (max-width: 600px) { main { padding: 16px; } header { padding: 16px; } nav a { margin: 0 16px 0 0; } }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; min-width: 0; }
+  h2 { font-size: 12.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .hidden { display: none !important; }
+  .bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .grow { flex: 1; }
+  .seg button { background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); padding: 6px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+  .seg button:first-child { border-radius: 7px 0 0 7px; } .seg button:last-child { border-radius: 0 7px 7px 0; }
+  .seg button + button { border-left: 0; }
+  .seg button.on { color: var(--text); background: #222838; }
+  .live { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+  .live i { width: 7px; height: 7px; border-radius: 50%; background: var(--good); display: inline-block; }
+
+  .summary { border-left: 3px solid var(--sec); }
+  .summary p { margin: 4px 0; font-size: 15px; }
+  .summary p:first-child { font-size: 16.5px; font-weight: 600; }
+
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+  .kpi { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .kpi .l { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+  .kpi .v { font-size: 28px; font-weight: 700; line-height: 1.2; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .kpi .s { font-size: 12px; color: var(--muted); }
+  .ico { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; font-size: 10px; font-weight: 800; color: #0b0d12; }
+
+  .grid4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+  @media (max-width: 1100px) { .grid4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 640px) { .grid4 { grid-template-columns: 1fr; } }
+
+  svg text { fill: var(--muted); font-size: 11px; font-family: inherit; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); margin-bottom: 6px; }
+  .legend span { display: inline-flex; gap: 6px; align-items: center; }
+  .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .empty { color: var(--muted); font-size: 13px; padding: 18px 0; text-align: center; }
+
+  .hbar { display: grid; grid-template-columns: minmax(0, 1fr) 34px; column-gap: 8px; align-items: center; font-size: 12.5px; margin: 4px 0 10px; }
+  .hbar .lab { grid-column: 1 / -1; color: var(--text); margin-bottom: 3px; }
+  .hbar .track { height: 10px; position: relative; }
+  .hbar .fill { position: absolute; inset: 0 auto 0 0; background: var(--series); border-radius: 0 4px 4px 0; min-width: 2px; }
+  .hbar .num { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  #tip { position: fixed; pointer-events: none; background: #0b0d12; border: 1px solid var(--border); border-radius: 7px;
+         padding: 7px 10px; font-size: 12.5px; color: var(--text); z-index: 10; display: none; min-width: 120px; }
+  #tip b { display: block; margin-bottom: 3px; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; white-space: nowrap; }
+  tbody tr { cursor: pointer; } tbody tr:hover { background: #1c202b; }
+  .tblwrap { overflow-x: auto; }
+  .pill { display: inline-flex; gap: 5px; align-items: center; padding: 1px 9px; border-radius: 999px; font-weight: 700; font-size: 11px; letter-spacing: .04em; white-space: nowrap; }
+  .p-DENY { color: var(--critical); border: 1px solid var(--critical); background: rgba(208,59,59,.12); }
+  .p-APPROVAL { color: var(--warning); border: 1px solid var(--warning); background: rgba(250,178,25,.10); }
+  .p-ALLOW { color: var(--good); border: 1px solid var(--good); background: rgba(12,163,12,.12); }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 5px; background: #2a2f3a; color: var(--muted); margin: 1px 3px 1px 0; }
+  code { font-family: ui-monospace, monospace; font-size: 12px; color: var(--text); word-break: break-word; }
+
+  #detail { border-left: 3px solid var(--accent); }
+  #detail pre { background: var(--panel-2); border: 1px solid var(--border); border-radius: 7px; padding: 10px; font-size: 12px;
+                white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow: auto; margin: 6px 0 0; }
+  #detail .kv { font-size: 13.5px; margin: 4px 0; }
+  #detail .kv b { color: var(--muted); font-weight: 500; display: inline-block; min-width: 130px; }
+  .close { background: #2a2f3a; color: var(--text); border: 0; border-radius: 7px; padding: 6px 12px; font: inherit; cursor: pointer; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Sec-Agent · Security Operations</h1>
+    <p>Every decision the controller made — what was attacked, what stopped it, and what a human approved.</p>
+  </div>
+  <nav><a href="/">Controller</a><a href="/rules">Rules</a><a href="/soc" class="on">SOC</a></nav>
+</header>
+
+<main>
+  <div class="bar">
+    <div class="seg" id="range">
+      <button data-h="1">1h</button><button data-h="24" class="on">24h</button><button data-h="168">7d</button><button data-h="720">30d</button>
+    </div>
+    <span class="grow"></span>
+    <span class="live"><i></i> live · refreshes every 10 s · <span id="updated">—</span></span>
+  </div>
+
+  <section class="panel summary" aria-live="polite"><h2>Summary</h2><div id="narrative" class="muted">Loading…</div></section>
+
+  <section class="kpis" id="kpis"></section>
+
+  <section class="panel">
+    <h2>Decisions over time</h2>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--critical)"></i>✗ Blocked (DENY)</span>
+      <span><i class="sw" style="background:var(--warning)"></i>! Sent to a human (APPROVAL)</span>
+      <span><i class="sw" style="background:var(--good)"></i>✓ Allowed</span>
+    </div>
+    <div id="timeline"></div>
+  </section>
+
+  <section class="grid4">
+    <div class="panel"><h2>Attack types</h2><div id="attacks"></div></div>
+    <div class="panel"><h2>Caught by</h2><div id="detected"></div></div>
+    <div class="panel"><h2>Policy rules fired</h2><div id="rules"></div></div>
+    <div class="panel"><h2>Jev input risk (documents)</h2><div id="jev"></div></div>
+  </section>
+
+  <section class="panel hidden" id="detail"></section>
+
+  <section class="panel">
+    <div class="bar"><h2 class="grow" style="margin:0">Incidents &amp; human reviews</h2><span class="muted" id="inccount"></span></div>
+    <div class="tblwrap" style="margin-top:8px">
+      <table>
+        <thead><tr><th>Time</th><th>Type</th><th>Proposed action</th><th>Decision</th><th>Caught by</th><th>Jev</th><th>Human</th><th>Agent</th></tr></thead>
+        <tbody id="incidents"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+<div id="tip"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+                set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+const DETECTOR = { regex: "Pattern match", jev: "Jev classifier", security_llm: "Security LLM", policy: "Policy rule" };
+const ATTACK = { prompt_injection: "Prompt injection", data_exfiltration: "Data exfiltration",
+                 bank_details_fraud: "Bank-details fraud", credential_access: "Credential access", unauthorized_tool: "Unauthorized tool" };
+const ICON = { DENY: "✗", APPROVAL: "!", ALLOW: "✓" };
+const COLOR = { DENY: "var(--critical)", APPROVAL: "var(--warning)", ALLOW: "var(--good)" };
+
+let hours = +(store.get("socHours") || 24), last = null;
+
+// ---------- tooltip ----------
+const tip = $("tip");
+function showTip(e, html) { tip.innerHTML = html; tip.style.display = "block"; moveTip(e); }
+function moveTip(e) {
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = Math.min(e.clientX + 14, innerWidth - w - 8) + "px";
+  tip.style.top = Math.max(8, e.clientY - h - 12) + "px";
+}
+function hideTip() { tip.style.display = "none"; }
+
+// ---------- KPI tiles ----------
+function kpis(k) {
+  const tile = (label, value, sub, icon, color) => `<div class="kpi"><div class="l">${icon ? `<span class="ico" style="background:${color}">${icon}</span>` : ""}${label}</div>
+    <div class="v">${value}</div><div class="s">${sub || "&nbsp;"}</div></div>`;
+  const s = (n) => n == null ? "—" : n < 60 ? `${n}s` : `${Math.round(n / 60)} min`;
+  $("kpis").innerHTML =
+    tile("Actions reviewed", k.total, `${k.attacks} attack attempt${k.attacks === 1 ? "" : "s"}`) +
+    tile("Blocked", k.DENY, `${k.attacks_blocked} of them attacks`, ICON.DENY, COLOR.DENY) +
+    tile("Sent to a human", k.APPROVAL, `${k.approved} approved · ${k.rejected} rejected · ${k.approvals_pending} pending`, ICON.APPROVAL, COLOR.APPROVAL) +
+    tile("Allowed", k.ALLOW, "no rule or reviewer objected", ICON.ALLOW, COLOR.ALLOW) +
+    tile("Attacks that reached a tool", k.attacks_executed, k.attacks_executed ? "only via human approval — review" : "none got through",
+         k.attacks_executed ? "!" : ICON.ALLOW, k.attacks_executed ? COLOR.DENY : COLOR.ALLOW) +
+    tile("Median human review", s(k.median_approval_s), "time to approve / reject") +
+    tile("Jev scoring latency", k.jev_median_ms == null ? "—" : `${Math.round(k.jev_median_ms)} ms`, "median per document");
+}
+
+// ---------- stacked bars: decisions over time ----------
+function timeline(buckets, unit) {
+  const el = $("timeline");
+  const total = buckets.reduce((a, b) => a + b.ALLOW + b.APPROVAL + b.DENY, 0);
+  if (!total) { el.innerHTML = '<div class="empty">No decisions in this range yet — run a scenario on the Controller page.</div>'; return; }
+  const W = el.clientWidth || 900, H = 200, L = 34, B = 22, T = 8;
+  const n = buckets.length, slot = (W - L) / n, bw = Math.max(2, Math.min(28, slot - 2));
+  const max = Math.max(1, ...buckets.map(b => b.ALLOW + b.APPROVAL + b.DENY));
+  const nice = max <= 5 ? max : Math.ceil(max / 5) * 5, y = v => T + (H - T - B) * (1 - v / nice);
+  const ticks = [0, Math.round(nice / 2), nice].filter((v, i, a) => a.indexOf(v) === i);
+  const fmt = t => { const d = new Date(t); return unit === "hour" ? d.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})
+                                                                   : d.toLocaleDateString([], {month: "short", day: "numeric"}); };
+  const every = Math.ceil(n / Math.max(2, Math.floor((W - L) / 70)));
+  let svg = `<svg width="${W}" height="${H}" role="img" aria-label="Decisions per ${unit}">`;
+  ticks.forEach(v => { svg += `<line x1="${L}" x2="${W}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`; });
+  buckets.forEach((b, i) => {
+    const x = L + i * slot + (slot - bw) / 2;
+    let acc = 0;
+    // Stack DENY at the base so blocked actions read first; 2px surface gap between segments.
+    ["DENY", "APPROVAL", "ALLOW"].forEach(d => {
+      if (!b[d]) return;
+      const y0 = y(acc), y1 = y(acc + b[d]);
+      const top = d === (b.ALLOW ? "ALLOW" : b.APPROVAL ? "APPROVAL" : "DENY");
+      const hgt = Math.max(1, y0 - y1 - (acc ? 2 : 0));
+      svg += top ? `<path d="M${x},${y0 - (acc ? 2 : 0)} V${y0 - (acc ? 2 : 0) - hgt + 4} q0,-4 4,-4 H${x + bw - 4} q4,0 4,4 V${y0 - (acc ? 2 : 0)} Z" fill="${COLOR[d]}"/>`
+                 : `<rect x="${x}" y="${y0 - (acc ? 2 : 0) - hgt}" width="${bw}" height="${hgt}" fill="${COLOR[d]}"/>`;
+      acc += b[d];
+    });
+    svg += `<rect class="hit" data-i="${i}" x="${L + i * slot}" y="${T}" width="${slot}" height="${H - T - B}" fill="transparent"/>`;
+    if (i % every === 0) {
+      // Keep edge labels inside the plot instead of clipping them.
+      const cx = L + i * slot + slot / 2, anchor = cx > W - 40 ? "end" : "middle";
+      if (cx - 30 >= L) svg += `<text x="${anchor === "end" ? W - 2 : cx}" y="${H - 6}" text-anchor="${anchor}">${fmt(b.t)}</text>`;
+    }
+  });
+  el.innerHTML = svg + "</svg>";
+  el.querySelectorAll(".hit").forEach(r => {
+    const b = buckets[+r.dataset.i];
+    const html = `<b>${esc(fmt(b.t))}</b>${["DENY", "APPROVAL", "ALLOW"].map(d =>
+      `<div><span class="sw" style="background:${COLOR[d]}"></span> ${ICON[d]} ${d}: ${b[d]}</div>`).join("")}`;
+    r.addEventListener("mouseenter", e => showTip(e, html));
+    r.addEventListener("mousemove", moveTip);
+    r.addEventListener("mouseleave", hideTip);
+  });
+}
+
+// ---------- single-series horizontal bars ----------
+function hbars(id, items, labelFn = x => x) {
+  const el = $(id);
+  if (!items.length || !items.some(x => x.count)) { el.innerHTML = '<div class="empty">Nothing yet</div>'; return; }
+  const max = Math.max(...items.map(x => x.count));
+  el.innerHTML = items.map(x => `<div class="hbar" title="${esc(labelFn(x.label))}: ${x.count}">
+      <span class="lab">${esc(labelFn(x.label))}</span>
+      <span class="track"><span class="fill" style="width:${(x.count / max) * 100}%"></span></span>
+      <span class="num">${x.count}</span></div>`).join("");
+}
+
+// ---------- incidents ----------
+function incidents(list) {
+  $("inccount").textContent = list.length ? `${list.length} shown · click a row for the full trail` : "";
+  $("incidents").innerHTML = list.length ? list.map(r => `<tr data-id="${esc(r.session_id)}">
+      <td style="white-space:nowrap">${esc(new Date(r.ts).toLocaleString([], {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"}))}</td>
+      <td>${r.attack_type === "none" ? '<span class="muted">—</span>' : esc(ATTACK[r.attack_type] || r.attack_type)}</td>
+      <td><code>${esc(r.tool)}</code> <span class="muted">${esc((r.arguments || "").slice(0, 70))}</span></td>
+      <td><span class="pill p-${esc(r.final_decision)}">${ICON[r.final_decision] || ""} ${esc(r.final_decision)}</span></td>
+      <td>${(r.detected_by || []).map(d => `<span class="tag">${esc(DETECTOR[d] || d)}</span>`).join("") || '<span class="muted">—</span>'}</td>
+      <td>${r.jev_level == null ? '<span class="muted">—</span>' : `${r.jev_level}`}</td>
+      <td>${r.human ? esc(r.human) : r.final_decision === "APPROVAL" ? '<span class="muted">pending</span>' : '<span class="muted">—</span>'}${r.executed ? ' <span class="tag">executed</span>' : ""}</td>
+      <td class="muted">${esc(r.executor)}</td></tr>`).join("")
+    : `<tr><td colspan="8" class="empty">No incidents in this range.</td></tr>`;
+}
+$("incidents").addEventListener("click", async (e) => {
+  const tr = e.target.closest("tr[data-id]"); if (!tr) return;
+  const ev = await (await fetch(`/api/soc/events/${encodeURIComponent(tr.dataset.id)}`)).json();
+  const d = $("detail");
+  d.innerHTML = `<div class="bar"><h2 class="grow" style="margin:0">Incident ${esc(ev.session_id.slice(0, 8))}</h2><button class="close" id="closeD">Close</button></div>
+    <div class="kv"><b>Time</b>${esc(new Date(ev.ts).toLocaleString())}</div>
+    <div class="kv"><b>User goal</b>${esc(ev.goal)}</div>
+    <div class="kv"><b>Agent</b>${esc(ev.executor)}</div>
+    <div class="kv"><b>Proposed</b><code>${esc(ev.tool)}(${esc(ev.arguments)})</code></div>
+    <div class="kv"><b>Final decision</b><span class="pill p-${esc(ev.final_decision)}">${ICON[ev.final_decision] || ""} ${esc(ev.final_decision)}</span>
+      ${ev.attack_type !== "none" ? ` <span class="tag">${esc(ATTACK[ev.attack_type] || ev.attack_type)}</span>` : ""}</div>
+    <div class="kv"><b>Policy</b>${(ev.policy_reasons || []).map(esc).join("<br>")}</div>
+    ${ev.security_llm ? `<div class="kv"><b>Security LLM</b>${esc(ev.security_llm.decision)} · ${esc(ev.security_llm.classification)} · risk ${ev.security_llm.risk_score}/100 — ${esc(ev.security_llm.reason)}</div>` : ""}
+    ${(ev.documents || []).map(doc => `<div class="kv"><b>Input ${esc(doc.id)}</b>${esc(doc.source_type)}, ${doc.chars} chars, taint ${esc(doc.taint)}${doc.jev_level != null
+        ? ` · Jev ${doc.jev_level}/100 (${Object.entries(doc.jev_signals || {}).map(([k, v]) => `${esc(k)} ${(v * 100).toFixed(0)}%`).join(", ")})` : ""}</div>`).join("")}
+    <div class="kv"><b>Human</b>${esc(ev.human || "—")}${ev.approval_seconds != null ? ` after ${ev.approval_seconds}s` : ""}</div>
+    <div class="kv"><b>Outcome</b>${esc(ev.outcome || (ev.final_decision === "DENY" ? "never executed" : "—"))}</div>
+    <pre>${(ev.audit || []).map(esc).join("\n")}</pre>`;
+  d.classList.remove("hidden");
+  $("closeD").onclick = () => d.classList.add("hidden");
+  d.scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
+// ---------- load ----------
+async function load() {
+  try {
+    const s = await (await fetch(`/api/soc/summary?hours=${hours}`)).json();
+    last = s;
+    $("narrative").innerHTML = s.narrative.map(l => `<p>${esc(l)}</p>`).join("");
+    kpis(s.kpis);
+    timeline(s.timeline, s.bucket);
+    hbars("attacks", s.attack_types);
+    hbars("detected", s.detected_by, l => DETECTOR[l] || l);
+    hbars("rules", s.rules_fired);
+    hbars("jev", s.jev_distribution, l => `risk ${l}`);
+    incidents(s.incidents);
+    $("updated").textContent = "updated " + new Date().toLocaleTimeString();
+  } catch (err) { $("narrative").textContent = "Could not load: " + err.message; }
+}
+document.querySelectorAll("#range button").forEach(b => {
+  b.classList.toggle("on", +b.dataset.h === hours);
+  b.addEventListener("click", () => {
+    hours = +b.dataset.h; store.set("socHours", hours);
+    document.querySelectorAll("#range button").forEach(x => x.classList.toggle("on", x === b));
+    load();
+  });
+});
+addEventListener("resize", () => last && timeline(last.timeline, last.bucket));
+load();
+setInterval(() => { if (!document.hidden) load(); }, 10000);
+</script>
+</body>
+</html>
