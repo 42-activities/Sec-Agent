@@ -130,6 +130,17 @@
   .jev .scale span { height: 6px; border-radius: 2px; background: #2a2f3a; }
   .jev .scale span.on { background: var(--c); }
   .jev small { color: var(--muted); }
+  .checks { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12.5px; table-layout: fixed; }
+  .checks td { padding: 4px 6px; border-bottom: 1px solid #21252f; vertical-align: top; word-break: break-word; }
+  .checks td.i { width: 22px; text-align: center; font-weight: 700; }
+  .checks td.id { width: 42px; color: var(--muted); font-family: ui-monospace, monospace; }
+  .checks td.c { width: 30%; color: var(--text); }
+  .checks td.by { width: 92px; }
+  .checks .r-pass { color: var(--allow); } .checks .r-flag { color: var(--approval); } .checks .r-fail { color: var(--deny); }
+  .checks .r-na, .checks .r-not_checked { color: var(--muted); }
+  .ccount { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+  .ccount b { font-weight: 700; }
+  @media (max-width: 700px) { .checks td.by { display: none; } .checks td.c { width: 38%; } }
   details summary { cursor: pointer; color: var(--muted); font-size: 13px; margin-top: 8px; }
 </style>
 </head>
@@ -362,7 +373,7 @@ const handlers = {
     stage("input_guard", bad.length ? "warn" : "ok",
       bad.length ? `⚠ ${bad.length} suspicious item(s)` : "✓ no risk found",
       items.map(i => `<span class="tag ${i.taint === "suspicious" ? "red" : i.trust === "trusted" ? "green" : ""}">${esc(i.id)}: ${esc(i.taint)}</span>`).join("")
-        + items.filter(i => i.jev).map(i => jevCard(i)).join(""),
+        + items.filter(i => i.jev).map(i => jevCard(i)).join("") + checkCount(e.data.checks),
       e.ms);
     linkDone(1);
     const finds = bad.flatMap(i => i.findings);
@@ -370,7 +381,8 @@ const handlers = {
       items.map(i => `<b>${esc(i.id)}</b> (${esc(i.source_type)}) — trust <b>${esc(i.trust)}</b>, taint <b>${esc(i.taint)}</b>, risk ${(i.risk * 100).toFixed(0)}%${i.instruction_detected ? ' <span class="tag red">hidden instructions</span>' : ""}`).join("<br>")
       + (finds.length ? `<br>Matched: ${finds.map(f => `<span class="tag red">${esc(f)}</span>`).join("")}` : "")
       + items.filter(i => i.jev).map(i => jevDetail(i)).join("")
-      + (bad.length ? `<br>Content is <b>labeled, not removed</b> — we let the LLM see it and enforce on the way out.` : ""));
+      + (bad.length ? `<br>Content is <b>labeled, not removed</b> — we let the LLM see it and enforce on the way out.` : "")
+      + checkTable(e.data.checks, "Input checklist (P1–P9)"));
     if (skipped) {
       stage("executor", "skipped", "⚠ compromised (simulated)", `injected: <b>${callStr(e_injected)}</b>`);
       event("bad", "3 · Executor LLM — skipped", null,
@@ -403,9 +415,10 @@ const handlers = {
     lastPolicy = e.data;
     const d = e.data, ms = Math.round(performance.now() - stageStart);
     stage("output_guard", cls(d.final_decision), `final: ${pill(d.final_decision)}`,
-      $("st-output_guard").querySelector(".sum").innerHTML + `<div>policy: ${pill(d.policy_decision)}</div>`, ms);
+      $("st-output_guard").querySelector(".sum").innerHTML + `<div>policy: ${pill(d.policy_decision)}</div>` + checkCount(d.checks), ms);
     event("sec " + cls(d.policy_decision), "4b · Sec-Agent deterministic policy (non-LLM)", e.ms,
-      `${pill(d.policy_decision)} ${d.reasons.map(esc).join("<br>")}<br>Final decision = the stricter of LLM and policy: ${pill(d.final_decision)}`);
+      `${pill(d.policy_decision)} ${d.reasons.map(esc).join("<br>")}<br>Final decision = the stricter of LLM and policy: ${pill(d.final_decision)}`
+      + checkTable(d.checks, "Action checklist (T1–T10)"));
     linkDone(3);
     output(d.final_decision);
   },
@@ -439,6 +452,28 @@ function jevDetail(i) {
 }
 
 let e_injected = null, lastSecurity = null, lastPolicy = null;
+
+// ---------- security checklist (P1–P9 input, T1–T10 action) ----------
+const CHECK_ICON = { pass: "✓", flag: "⚠", fail: "✗", "n/a": "–", not_checked: "○" };
+const CHECK_BY = { provenance: "provenance", regex: "pattern", jev: "Jev", "regex+jev": "pattern + Jev",
+                   security_llm: "security LLM", policy: "policy rule", combined: "combined", "-": "—" };
+function checkCount(checks) {
+  if (!checks || !checks.length) return "";
+  const n = r => checks.filter(c => c.result === r).length;
+  return `<div class="ccount">${checks.length} checks: <b style="color:var(--allow)">${n("pass")} ✓</b>`
+    + (n("flag") ? ` · <b style="color:var(--approval)">${n("flag")} ⚠</b>` : "")
+    + (n("fail") ? ` · <b style="color:var(--deny)">${n("fail")} ✗</b>` : "") + `</div>`;
+}
+function checkTable(checks, title) {
+  if (!checks || !checks.length) return "";
+  const rows = checks.map(c => `<tr>
+      <td class="i r-${esc(c.result.replace("/", ""))}" title="${esc(c.result)}">${CHECK_ICON[c.result] || "?"}</td>
+      <td class="id">${esc(c.id)}</td><td class="c">${esc(c.criterion)}</td>
+      <td class="by">${esc(CHECK_BY[c.checked_by] || c.checked_by)}</td>
+      <td>${esc(c.evidence)}${c.effect ? ` ${pill(c.effect)}` : ""}</td></tr>`).join("");
+  return `<details open><summary>${esc(title)} — ✓ pass · ⚠ flag · ✗ fail · – n/a · ○ not checked</summary>
+    <table class="checks">${rows}</table></details>`;
+}
 
 const APPROVE_LABEL = { pay_invoice: "Approve payment", send_email: "Approve & send email",
                         write_file: "Approve file write", http_request: "Approve request" };

@@ -70,6 +70,30 @@ def most_restrictive(*decisions: Decision) -> Decision:
     return max(decisions, key=lambda d: d.rank)
 
 
+class CheckResult(str, Enum):
+    PASS = "pass"
+    FLAG = "flag"              # noteworthy / needs a human, not a hard failure
+    FAIL = "fail"
+    NA = "n/a"                 # criterion doesn't apply to this input/action
+    NOT_CHECKED = "not_checked"  # applies, but no check is implemented / available
+
+
+class Check(BaseModel):
+    """One row of the security checklist recorded for every request (audit trail).
+
+    Input criteria P1–P9 are checked by the input guard; action criteria T1–T10 by the
+    policy engine and the security LLM. ``effect`` is the decision this row imposed, if any.
+    """
+
+    id: str
+    stage: str  # "input" | "action"
+    criterion: str
+    checked_by: str  # provenance | regex | jev | security_llm | policy | combined
+    result: CheckResult
+    evidence: str = ""
+    effect: Optional[Decision] = None
+
+
 class SecurityDecision(BaseModel):
     """Advisory verdict from the Output Security Agent (the security LLM).
 
@@ -98,5 +122,7 @@ class AgentState(TypedDict, total=False):
     policy_reasons: list[str]
     final_decision: Optional[Decision]
     jev_input: dict  # context-item id -> Jev prompt-injection risk result
+    input_checks: list[Check]  # P1–P9, from the input guard
+    checks: list[Check]        # full checklist: input + action (T1–T10), set by the policy node
     execution_result: Optional[str]
     audit: list[str]

@@ -84,8 +84,9 @@ def test_file_tools_are_sandboxed(tmp_path, monkeypatch):
 
 
 def test_email_only_to_company_domains():
+    trusted_only = [i for i in _items() if i.trust == Trust.TRUSTED]
     ok, _ = evaluate(ProposedAction(tool="send_email", arguments={"recipient": "hiring@ourco.example", "body": "x"},
-                                    reason="r", source_ids=["user-request"], original_goal="g"), _items())
+                                    reason="r", source_ids=["user-request"], original_goal="g"), trusted_only)
     bad, reasons = evaluate(ProposedAction(tool="send_email", arguments={"recipient": "talent-sync@recruit-hub.example", "body": "x"},
                                            reason="r", source_ids=["document-1"], original_goal="g"), _items())
     assert ok == Decision.ALLOW

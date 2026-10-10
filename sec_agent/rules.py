@@ -34,6 +34,8 @@ class Rules(BaseModel):
     output_only_tools: list[str]
     known_payees: dict[str, str]
     allowed_email_domains: list[str]
+    # Default lets rule files saved before this field existed still load.
+    allowed_http_hosts: list[str] = Field(default_factory=lambda: list(settings.allowed_http_hosts))
     approval_required_tools: list[str]
     consequential_tools: list[str]
     # Jev risk level (0/20/.../100) at which untrusted content is marked suspicious.
@@ -44,7 +46,8 @@ class Rules(BaseModel):
     updated_at: Optional[str] = Field(default=None, description="Set on every save.")
 
     @field_validator("allowed_tools", "denied_path_substrings", "output_only_tools",
-                     "allowed_email_domains", "approval_required_tools", "consequential_tools")
+                     "allowed_email_domains", "allowed_http_hosts", "approval_required_tools",
+                     "consequential_tools")
     @classmethod
     def _clean_list(cls, v: list[str]) -> list[str]:
         out = list(dict.fromkeys(s.strip() for s in v if s and s.strip()))
@@ -52,7 +55,7 @@ class Rules(BaseModel):
             raise ValueError(f"at most {_MAX_ITEMS} entries of at most {_MAX_LEN} characters")
         return out
 
-    @field_validator("allowed_email_domains")
+    @field_validator("allowed_email_domains", "allowed_http_hosts")
     @classmethod
     def _lower_domains(cls, v: list[str]) -> list[str]:
         return list(dict.fromkeys(d.lower().lstrip("@") for d in v))
@@ -76,6 +79,7 @@ def defaults() -> Rules:
         output_only_tools=settings.output_only_tools,
         known_payees=settings.known_payees,
         allowed_email_domains=settings.allowed_email_domains,
+        allowed_http_hosts=settings.allowed_http_hosts,
         approval_required_tools=settings.approval_required_tools,
         consequential_tools=settings.consequential_tools,
         jev_suspicious_level=settings.jev_suspicious_level,

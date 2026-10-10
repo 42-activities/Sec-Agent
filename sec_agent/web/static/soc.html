@@ -83,6 +83,9 @@
                 white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow: auto; margin: 6px 0 0; }
   #detail .kv { font-size: 13.5px; margin: 4px 0; }
   #detail .kv b { color: var(--muted); font-weight: 500; display: inline-block; min-width: 130px; }
+  .ck { margin-top: 4px; font-size: 12.5px; } .ck td { padding: 4px 6px; }
+  .ck-i { width: 22px; text-align: center; font-weight: 700; } .ck-id { width: 42px; color: var(--muted); font-family: ui-monospace, monospace; }
+  .ck-pass { color: var(--good); } .ck-flag { color: var(--warning); } .ck-fail { color: var(--critical); } .ck-na, .ck-not_checked { color: var(--muted); }
   .close { background: #2a2f3a; color: var(--text); border: 0; border-radius: 7px; padding: 6px 12px; font: inherit; cursor: pointer; }
 </style>
 </head>
@@ -123,6 +126,12 @@
     <div class="panel"><h2>Caught by</h2><div id="detected"></div></div>
     <div class="panel"><h2>Policy rules fired</h2><div id="rules"></div></div>
     <div class="panel"><h2>Jev input risk (documents)</h2><div id="jev"></div></div>
+  </section>
+
+  <section class="panel">
+    <h2>Checklist criteria flagged or failed</h2>
+    <div class="muted" style="margin:-4px 0 6px">How often each security criterion (P = input, T = tool call) raised a flag or failed.</div>
+    <div id="criteria"></div>
   </section>
 
   <section class="panel hidden" id="detail"></section>
@@ -266,6 +275,10 @@ $("incidents").addEventListener("click", async (e) => {
         ? ` · Jev ${doc.jev_level}/100 (${Object.entries(doc.jev_signals || {}).map(([k, v]) => `${esc(k)} ${(v * 100).toFixed(0)}%`).join(", ")})` : ""}</div>`).join("")}
     <div class="kv"><b>Human</b>${esc(ev.human || "—")}${ev.approval_seconds != null ? ` after ${ev.approval_seconds}s` : ""}</div>
     <div class="kv"><b>Outcome</b>${esc(ev.outcome || (ev.final_decision === "DENY" ? "never executed" : "—"))}</div>
+    ${(ev.checks || []).length ? `<h2 style="margin-top:12px">Security checklist</h2><table class="ck">${ev.checks.map(c => `<tr>
+        <td class="ck-i ck-${esc(c.result.replace("/", ""))}">${{pass: "✓", flag: "⚠", fail: "✗", "n/a": "–", not_checked: "○"}[c.result] || "?"}</td>
+        <td class="ck-id">${esc(c.id)}</td><td>${esc(c.criterion)}</td><td class="muted">${esc(c.checked_by)}</td>
+        <td>${esc(c.evidence)}${c.effect ? ` <span class="pill p-${esc(c.effect)}">${esc(c.effect)}</span>` : ""}</td></tr>`).join("")}</table>` : ""}
     <pre>${(ev.audit || []).map(esc).join("\n")}</pre>`;
   d.classList.remove("hidden");
   $("closeD").onclick = () => d.classList.add("hidden");
@@ -284,6 +297,7 @@ async function load() {
     hbars("detected", s.detected_by, l => DETECTOR[l] || l);
     hbars("rules", s.rules_fired);
     hbars("jev", s.jev_distribution, l => `risk ${l}`);
+    hbars("criteria", s.criteria_failed || []);
     incidents(s.incidents);
     $("updated").textContent = "updated " + new Date().toLocaleTimeString();
   } catch (err) { $("narrative").textContent = "Could not load: " + err.message; }

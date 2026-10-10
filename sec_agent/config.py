@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     known_payees: dict[str, str] = {"Acme GmbH": "DE89370400440532013000"}
     # Outbound email only to these domains (data-egress control).
     allowed_email_domains: list[str] = ["ourco.example"]
+    # http_request only to these hosts (and their subdomains) — data-egress control.
+    allowed_http_hosts: list[str] = ["ourco.example"]
     # read_file / write_file are confined to this directory (the proxy refuses anything
     # that resolves outside it, e.g. /proc/self/environ or ../../etc/passwd).
     files_root: str = "/tmp/sec-agent-files"

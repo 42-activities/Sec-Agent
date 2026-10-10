@@ -114,6 +114,8 @@ const RULES = [
     desc: "pay_invoice may only pay a payee listed here, to exactly this IBAN. A document saying “our bank details changed” cannot add to this list." },
   { key: "allowed_email_domains", title: "Email only to company domains", decision: "DENY", kind: "list", placeholder: "e.g. ourco.example",
     desc: "send_email to any other domain is refused as data leaving the company." },
+  { key: "allowed_http_hosts", title: "Web requests only to allowed hosts", decision: "DENY", kind: "list", placeholder: "e.g. api.ourco.example",
+    desc: "http_request may only reach these hosts and their subdomains; any other URL is refused as data leaving the company." },
   { key: "approval_required_tools", title: "Always needs a human", decision: "APPROVAL", kind: "list", placeholder: "tool name",
     desc: "High-impact actions (money movement) always wait for a person — even when the request is clean." },
   { key: "consequential_tools", title: "Needs a human when influenced by untrusted content", decision: "APPROVAL", kind: "list", placeholder: "tool name",

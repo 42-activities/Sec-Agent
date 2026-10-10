@@ -137,6 +137,10 @@ In this implementation the guard combines two detectors:
   (instructions to an AI, redirecting data or money, asking for secrets, pressure). It catches
   realistic injections that pattern matching misses, in ~300 ms.
 
+A third, deterministic check looks for **hidden or obfuscated text** — invisible / bidi / Unicode-tag
+characters, HTML comments, base64 blobs and look-alike mixed-script words — and reveals what it
+says, so an instruction smuggled past a human reader is still scanned.
+
 Either detector can mark content suspicious; neither can ever mark it trusted. Content is
 **labeled, not removed** — the executor still sees it, and enforcement happens on the way out.
 
@@ -230,8 +234,11 @@ Certain restrictions are enforced directly in code. The rules run in this order:
 | 2 | Forbidden resources (`.ssh`, `.aws`, `.env`, credentials, secrets…) in any argument | DENY |
 | 3 | Payments only to the bank account on file for that supplier ("our bank details changed" fraud) | DENY |
 | 4 | Email only to company domains (data egress) | DENY |
-| 5 | High-impact actions (payments) always need a human | APPROVAL |
-| 6 | Consequential actions influenced by untrusted content need a human | APPROVAL |
+| 5 | Web requests only to allowed hosts (data egress) | DENY |
+| 6 | No credentials (private keys, cloud keys, tokens, passwords) in outbound payloads | DENY |
+| 7 | Sane arguments (expected fields; payments need a positive amount) | DENY / flag |
+| 8 | High-impact actions (payments) always need a human | APPROVAL |
+| 9 | Consequential actions influenced by untrusted content need a human — "influenced" means *any* untrusted content was in context, not only what the agent chose to cite | APPROVAL |
 
 The rule *logic* is code; the lists it checks (tools, paths, known payees, domains…) are editable
 on the [`/rules`](https://sec-agent.naurzalinov.me/rules) page behind an admin password.
@@ -247,6 +254,27 @@ Policy says DENY
 ```
 
 The deterministic policy layer always has the final authority for hard security restrictions.
+
+---
+
+# Security checklist (audit trail)
+
+Every request records one row per criterion — what was checked, by which layer, the result
+(pass / flag / fail / n/a / not checked), the evidence, and the decision it imposed. It is shown
+under each Sec-Agent step, in the SOC incident view, and in the JSON event log.
+
+| Input (before the LLM) | Tool call (before execution) |
+|---|---|
+| P1 Source trust | T1 Tool allowed |
+| P2 Instructions aimed at an AI | T2 No forbidden resources |
+| P3 Redirects data or money | T3 Destination allowed (payee IBAN, email domain, HTTP host) |
+| P4 Requests for secrets | T4 Goal alignment (security LLM) |
+| P5 Pressure / urgency (informs only) | T5 Untrusted influence (never trusts self-reported sources) |
+| P6 Secrecy ("don't tell the user") | T6 Impact & reversibility → human approval |
+| P7 Overall injection risk (Jev) | T7 No secrets in outbound data |
+| P8 Hidden or obfuscated text | T8 Arguments sane |
+| P9 User's own prompt — *n/a: trusted by design* | T9 Rate & volume — *not checked yet* |
+| | T10 Combined verdict |
 
 ---
 

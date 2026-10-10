@@ -168,7 +168,8 @@ def _node_data(node: str, state: AgentState) -> dict:
              "findings": _findings(i.content) if i.trust != Trust.TRUSTED else [],
              "jev": state.get("jev_input", {}).get(i.id)}
             for i in state.get("context_items", [])
-        ], "jev_enabled": jev.enabled()}
+        ], "jev_enabled": jev.enabled(),
+            "checks": [c.model_dump(mode="json") for c in state.get("input_checks", [])]}
     if node == "executor":
         return {"proposed_action": _action_view(state.get("proposed_action"))}
     if node == "security":
@@ -177,7 +178,8 @@ def _node_data(node: str, state: AgentState) -> dict:
         pd, fd = state.get("policy_decision"), state.get("final_decision")
         return {"policy_decision": pd.value if pd else None,
                 "final_decision": fd.value if fd else None,
-                "reasons": state.get("policy_reasons", [])}
+                "reasons": state.get("policy_reasons", []),
+                "checks": [c.model_dump(mode="json") for c in state.get("checks", []) if c.stage == "action"]}
     return {}
 
 

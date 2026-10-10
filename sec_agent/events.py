@@ -120,6 +120,7 @@ def _from_state(session_id: str, state: AgentState, compromised: bool) -> dict:
                                 bool(sec and sec.decision.value == "DENY"), injected),
         "detected_by": _detected_by(docs, sec, state.get("policy_decision")),
         "human": None, "executed": None, "outcome": None, "approval_seconds": None,
+        "checks": [c.model_dump(mode="json") for c in state.get("checks", [])],
         "audit": state.get("audit", []),
     }
 
@@ -233,12 +234,18 @@ def summary(hours: int) -> dict:
                 out[k] = out.get(k, 0) + 1
         return [{"label": k, "count": v} for k, v in sorted(out.items(), key=lambda kv: -kv[1])]
 
-    rule_names = [("allow-list", "Allowed tools"), ("denied resource", "Forbidden resources"),
-                  ("IBAN", "Known bank accounts"), ("vendor master data", "Known bank accounts"),
-                  ("egress", "Company email domains"), ("high-impact", "Always needs a human"),
-                  ("influenced by untrusted", "Untrusted influence → human")]
-    rules_fired = count(lambda r: list(dict.fromkeys(
-        name for reason in r["policy_reasons"] for needle, name in rule_names if needle in reason)))
+    # Rules that changed a decision, and criteria that flagged or failed — from the checklist.
+    def fired(r):
+        return list(dict.fromkeys(f"{c['id']} · {c['criterion']}" for c in r.get("checks", [])
+                                  if c.get("effect") and c["checked_by"] == "policy"))
+
+    def failed(r):
+        return [f"{c['id']} · {c['criterion']}" for c in r.get("checks", []) if c["result"] in ("fail", "flag")
+                # T5 flags every run that had a document and T10 restates the verdict — bookkeeping, not signal.
+                and c["id"] not in ("T5", "T10")]
+
+    rules_fired = count(fired)
+    criteria_failed = count(failed)
     jev_levels = [d["jev_level"] for r in rows for d in r["documents"] if d.get("jev_level") is not None]
     jev_ms = [d["jev_ms"] for r in rows for d in r["documents"] if d.get("jev_ms")]
 
@@ -265,6 +272,7 @@ def summary(hours: int) -> dict:
         "attack_types": [{"label": ATTACK_LABELS.get(x["label"], x["label"]), "count": x["count"]}
                          for x in count(lambda r: [r["attack_type"]] if r["attack_type"] != "none" else [])],
         "rules_fired": rules_fired,
+        "criteria_failed": criteria_failed[:12],
         "detected_by": count(lambda r: r["detected_by"] if r["attack_type"] != "none" else []),
         "jev_distribution": [{"label": str(lv), "count": sum(1 for x in jev_levels if x == lv)}
                              for lv in (0, 20, 40, 60, 80, 100)],

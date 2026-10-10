@@ -70,8 +70,17 @@ def _provenance(action: ProposedAction, items: list[ContextItem]) -> list[dict]:
                     "trust": item.trust.value,
                     "taint": item.taint.value,
                     "instruction_detected": item.instruction_detected,
+                    "cited_by_agent": True,
                 }
             )
+    # Self-reported sources can be incomplete (a compromised agent may not cite the
+    # poisoned document), so show the reviewer every untrusted item that was in context.
+    cited = set(action.source_ids)
+    for item in items:
+        if item.id not in cited and item.trust.value != "trusted":
+            rows.append({"id": item.id, "source_type": item.source_type, "trust": item.trust.value,
+                         "taint": item.taint.value, "instruction_detected": item.instruction_detected,
+                         "cited_by_agent": False})
     return rows
 
 
