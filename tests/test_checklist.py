@@ -93,7 +93,8 @@ def test_base64_hidden_injection_is_caught_and_tainted():
 # ---------------- T7, T8 ----------------
 
 def test_secret_in_outbound_payload_is_denied():
-    action = _act("send_email", recipient="team@ourco.example", body="key: AKIAABCDEFGHIJKLMNOP")
+    fake_key = "AKIA" + "ABCDEFGHIJKLMNOP"   # made-up, assembled at runtime so secret scanners don't flag the repo
+    action = _act("send_email", recipient="team@ourco.example", body=f"key: {fake_key}")
     assert evaluate(action, [USER])[0] == Decision.DENY
     assert "AWS access key" in _row(evaluate_checks(action, [USER]), "T7").evidence
 

@@ -53,6 +53,7 @@ The proxy service is **zero-trust toward the controller**: `POST /execute-action
 - `.github/workflows/pipeline.yml`: on push to `main` → `ci.yml` (pytest) → `docker-deploy.yml` builds `ghcr.io/42-activities/sec-agent-app:<sha>` for arm64, SSHes to the server, pulls, `docker compose up`, checks `/health`, rolls back on failure. PRs only test + build. Same pattern as LegoBot.
 - **The server's `.env` is rewritten on every deploy** from GitHub secrets (`AWS_BEARER_TOKEN_BEDROCK`, `PROXY_AUTH_TOKEN`, `TYPESAFE_API_KEY`, `RULES_ADMIN_TOKEN` — the last two optional; empty = feature off) and variables (`AWS_REGION`, `EXECUTOR_MODEL_ID`, `SECURITY_MODEL_ID`). Never edit `.env` on the server; rotate the Bedrock key with `gh secret set AWS_BEARER_TOKEN_BEDROCK && gh workflow run pipeline.yml`.
 - Actions are on their Node 24 majors (checkout/setup-python v7, docker/* v4, build-push v7); runners pinned to `ubuntu-24.04`.
+- **No secrets in the repo or its history** (GitGuardian is on the hackathon jury). Check with `docker run --rm -v "$PWD":/repo:ro zricethezav/gitleaks:v8.18.4 detect --source /repo --log-opts=--all --redact` — must report no leaks. Test fixtures shaped like credentials must be assembled at runtime (e.g. `"AKIA" + "ABCDEFGHIJKLMNOP"`), never written literally; `.gitleaksignore` lists the one historic fake fixture.
 - Deploy aborts if the server checkout (`~/projects/Sec-Agent`) has uncommitted changes to tracked files.
 
 ### Tools & demo scenarios
