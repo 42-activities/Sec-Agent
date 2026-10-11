@@ -91,6 +91,16 @@ def reset_rules(authorization: str = Header(default=""), x_admin_token: str = He
     return {"rules": rules_store.reset_local().model_dump(), "editable": True}
 
 
+@app.post("/admin/verify")
+def verify_admin(authorization: str = Header(default=""), x_admin_token: str = Header(default="")) -> dict:
+    """Check the human admin's password for an admin action the controller performs itself
+    (e.g. clearing its HR run log). The controller never stores the password."""
+    _check_auth(authorization)
+    if not rules_store.admin_ok(x_admin_token):
+        raise HTTPException(status_code=403, detail="wrong admin password, or admin actions disabled")
+    return {"ok": True}
+
+
 @app.get("/healthz")
 def healthz() -> dict:
     return {"ok": True}

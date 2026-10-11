@@ -40,7 +40,19 @@
   .seg button.on { color: var(--text); background: var(--raised-2); }
   a.btn { display: inline-block; text-decoration: none; background: var(--raised); color: var(--text); border: 1px solid var(--border);
     border-radius: 7px; padding: 6px 12px; font-size: 13px; font-weight: 500; }
-  a.btn:hover { background: var(--hover); }
+  a.btn:hover, button.btn:hover { background: var(--hover); }
+  button.btn { font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; background: var(--raised); color: var(--text);
+    border: 1px solid var(--border); border-radius: 7px; padding: 6px 12px; }
+  button.btn.danger { color: var(--deny); border-color: color-mix(in srgb, var(--deny) 55%, var(--border)); }
+  dialog.reset { max-width: 420px; width: calc(100% - 32px); background: var(--panel); color: var(--text);
+    border: 1px solid var(--border-strong); border-radius: 12px; padding: 18px 20px; }
+  dialog.reset::backdrop { background: rgb(0 0 0 / .55); }
+  dialog.reset h2 { font-size: 17px; text-transform: none; letter-spacing: 0; color: var(--text); font-family: var(--display); }
+  dialog.reset p { font-size: 13.5px; margin: 0 0 10px; }
+  dialog.reset input { width: 100%; font: inherit; padding: 8px 10px; border-radius: 7px; border: 1px solid var(--border);
+    background: var(--panel-2); color: var(--text); }
+  dialog.reset .acts { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+  dialog.reset .err { color: var(--deny); font-size: 13px; min-height: 1.2em; margin-top: 6px; }
   .intro { border-left: 3px solid var(--sec); font-size: 14px; }
   .intro p { margin: 0 0 4px; }
 
@@ -105,7 +117,7 @@
 <main>
   <section class="panel intro">
     <p>A <b>flag</b> is a security signal about the content of an application email (for example a hidden instruction to the AI). It is not an assessment of the applicant, and nothing here ranks or rejects candidates.</p>
-    <p class="muted">Runs on the synthetic sample inbox keep candidate names. Runs on a connected Gmail keep <b>counts only</b> — no names, subjects, senders, recipients or content.</p>
+    <p class="muted">Only runs on <b>real applications</b> — a connected Gmail inbox, label <b>secagent-applications</b> — are recorded here, as <b>counts only</b>: no names, subjects, senders, recipients or content. Demo runs on the synthetic sample inbox are not recorded.</p>
   </section>
 
   <div class="bar">
@@ -116,6 +128,7 @@
     <span class="muted" id="updated">—</span>
     <a class="btn" id="expCsv" href="/api/hr/export?format=csv&amp;hours=168" download>Export CSV</a>
     <a class="btn" id="expJson" href="/api/hr/export?format=json&amp;hours=168" download>Export JSON</a>
+    <button class="btn danger" id="resetBtn" type="button">Reset…</button>
   </div>
 
   <section class="kpis" id="kpis" aria-live="polite"></section>
@@ -136,10 +149,24 @@
         <tbody></tbody>
       </table>
     </div>
-    <div class="empty hidden" id="norun">No runs in this period. Start one on <a href="/demo-hr">Demo HR</a>.</div>
+    <div class="empty hidden" id="norun">No Gmail runs in this period. On <a href="/demo-hr">Demo HR</a>, choose <b>Inbox → My Gmail</b> and run.</div>
   </section>
 </main>
 <footer class="site-foot"><a href="/privacy">Privacy policy</a> · <a href="/terms">Terms of use</a> · <a href="https://github.com/42-activities/Sec-Agent">Source code</a></footer>
+
+<dialog class="reset" id="resetDlg" aria-labelledby="resetTitle">
+  <form id="resetForm" method="dialog">
+    <h2 id="resetTitle">Reset the HR runs dashboard?</h2>
+    <p>This permanently deletes every recorded run, for everyone. Runs paused on Demo HR can still be continued.</p>
+    <label class="muted" for="resetPw">Admin password (the same as for editing rules)</label>
+    <input id="resetPw" type="password" autocomplete="current-password" required />
+    <div class="err" id="resetErr" role="alert"></div>
+    <div class="acts">
+      <button class="btn" type="button" id="resetCancel">Cancel</button>
+      <button class="btn danger" type="submit" id="resetGo">Delete all runs</button>
+    </div>
+  </form>
+</dialog>
 
 <script src="/static/hr-dashboard.js"></script>
 </body>

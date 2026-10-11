@@ -182,5 +182,28 @@ $("range").querySelectorAll("button").forEach(b => b.addEventListener("click", (
   load();
 }));
 
+// ---------------- admin reset ----------------
+$("resetBtn").addEventListener("click", () => {
+  $("resetErr").textContent = "";
+  try { $("resetPw").value = sessionStorage.getItem("secAgentAdmin") || ""; } catch { $("resetPw").value = ""; }
+  $("resetDlg").showModal();
+});
+$("resetCancel").addEventListener("click", () => $("resetDlg").close());
+$("resetForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const go = $("resetGo"); go.disabled = true; $("resetErr").textContent = "";
+  try {
+    const r = await fetch("/api/hr/reset", { method: "POST", headers: { "X-Admin-Token": $("resetPw").value } });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body.detail || r.statusText);
+    try { sessionStorage.setItem("secAgentAdmin", $("resetPw").value); } catch {}
+    $("resetDlg").close();
+    $("detail").classList.add("hidden"); openRun = null; history.replaceState(null, "", location.pathname);
+    await load();
+    $("updated").textContent = `${body.cleared} run(s) deleted`;
+  } catch (err) { $("resetErr").textContent = err.message; }
+  finally { go.disabled = false; }
+});
+
 load().then(() => { const id = new URLSearchParams(location.search).get("run"); if (id) showRun(id); });
 setInterval(() => { if (!document.hidden) load(); }, 15000);

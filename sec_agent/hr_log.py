@@ -7,11 +7,11 @@ human approval and whether the action ran. Stored in the same SQLite file as the
 (table `hr_runs`), but separate from it: the SOC log is about security events, this one is
 about the review workflow.
 
-Privacy: the dashboard is public.
-  * Gmail runs keep COUNTS ONLY — no names, subjects, senders, recipients, reasons or
-    per-application rows. Only numbers and category keys.
-  * Sample-inbox runs (synthetic data) also keep candidate names and the proposed recipient.
-  * CV/email content is never stored for any run.
+Only runs on real input — the user's connected Gmail — are recorded; runs on the synthetic
+sample inbox are demo traffic and are not.
+
+Privacy: the dashboard is public, so a run keeps COUNTS ONLY — no names, subjects, senders,
+recipients, reasons, per-application rows or content. Only numbers and category keys.
 """
 
 from __future__ import annotations
@@ -68,16 +68,20 @@ def new_run(run_id: str, *, protection: bool, source: str, scenario: Optional[st
 
 
 def _private(rec: dict) -> dict:
-    """What may be stored for this run: Gmail runs lose everything but numbers and categories."""
-    if rec.get("source") == "sample":
-        return rec
+    """What may be stored for a run: everything but numbers and categories is dropped."""
     out = dict(rec, apps=[], top_reason=None)
     if out.get("action"):
         out["action"] = {"tool": out["action"].get("tool"), "internal": out["action"].get("internal")}
     return out
 
 
+def recorded(source: str) -> bool:
+    return source == "gmail"
+
+
 def save(rec: dict) -> None:
+    if not recorded(rec.get("source", "")):
+        return
     try:
         data = _private(rec)
         now = _now().isoformat(timespec="seconds")
@@ -121,8 +125,16 @@ def _status(rec: dict, pending: Iterable[str]) -> str:
     return rec.get("status", "done")
 
 
+def clear() -> int:
+    """Delete every recorded run (admin reset). Returns how many were removed."""
+    with _lock, _db() as db:
+        return db.execute("DELETE FROM hr_runs").rowcount
+
+
 def get(run_id: str, pending: Iterable[str] = ()) -> Optional[dict]:
     rec = load(run_id)
+    if rec is not None and not recorded(rec.get("source", "")):
+        return None
     if rec is not None:
         rec["status"] = _status(rec, pending)
     return rec
@@ -140,6 +152,8 @@ def runs(hours: int, pending: Iterable[str] = ()) -> list[dict]:
     out = []
     for r in rows:
         rec = json.loads(r["data"])
+        if not recorded(rec.get("source", "")):   # sample runs recorded before Gmail-only
+            continue
         rec["status"] = _status(rec, pending)
         out.append(rec)
     return out

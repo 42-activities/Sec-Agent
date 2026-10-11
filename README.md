@@ -10,7 +10,7 @@ A defense-in-depth security layer for autonomous AI agents, built with **LangGra
 | Mode | Page | What it shows |
 |---|---|---|
 | **HR** | [`/demo-hr`](https://sec-agent.naurzalinov.me/demo-hr) | An AI recruiting assistant screening CVs by email — run without and with Sec-Agent, side by side |
-| | [`/hr-dashboard`](https://sec-agent.naurzalinov.me/hr-dashboard) | Every screening run: what was flagged, what the reviewer decided, what was allowed; CSV/JSON export |
+| | [`/hr-dashboard`](https://sec-agent.naurzalinov.me/hr-dashboard) | Every screening run on real (Gmail) applications: what was flagged, what the reviewer decided, what was allowed; CSV/JSON export |
 | **General** | [`/`](https://sec-agent.naurzalinov.me/) | The controller: pick a scenario or paste a document and watch it flow through every check live |
 | | [`/soc`](https://sec-agent.naurzalinov.me/soc) | Security operations dashboard: attacks, blocks, approvals, rules fired, full audit trails |
 | **Batch** | [`/batch`](https://sec-agent.naurzalinov.me/batch) | Screen up to 1,000 prompts at once and measure accuracy against your own labels |
@@ -135,13 +135,13 @@ synthetic (`@example.org`, `.example` domains).
      content influenced it, it still needs **Approve & send** (APPROVAL).
    - *Included anyway:* the agent follows the hidden instruction — and the deterministic policy
      **blocks** the send (T3: recipient outside the company domains). Two independent layers.
-4. **[`/hr-dashboard`](https://sec-agent.naurzalinov.me/hr-dashboard).** Every run: applications
+4. **Run it on real applications:** *Inbox → My Gmail* (read-only) reads only the emails under the
+   label `secagent-applications`.
+5. **[`/hr-dashboard`](https://sec-agent.naurzalinov.me/hr-dashboard)** records every run on real
+   (Gmail) applications — sample-inbox demo runs are not recorded — as **counts only**: applications
    loaded, clean / flagged / unchecked, excluded, included anyway (human overrides), median review
    time, final decisions, flag reasons by category, and a per-run view with each workflow stage.
-   **Export CSV / JSON** gives one row per run.
-
-You can also run it on your own Gmail (*Inbox → My Gmail*, read-only): only emails under the label
-`secagent-applications` are read. Those runs are kept on the dashboard as **counts only**.
+   **Export CSV / JSON** gives one row per run; **Reset…** (admin password) deletes all runs.
 
 The agent in this demo is **scripted** by default (it reliably obeys the injection, which makes the A/B
 repeatable). Switch *Agent → Live LLM* to use the real executor model, which often resists this

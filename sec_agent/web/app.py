@@ -504,6 +504,16 @@ def hr_run_detail(run_id: str) -> dict:
     return rec
 
 
+@app.post("/api/hr/reset")
+def hr_reset(x_admin_token: str = Header(default="")) -> dict:
+    """Clear the HR run log. Needs the admin password; in two-container mode the proxy checks it."""
+    if settings.proxy_url:
+        _relay("POST", "/admin/verify", x_admin_token)
+    elif not rules_store.admin_ok(x_admin_token):
+        raise HTTPException(status_code=403, detail="wrong admin password, or admin actions disabled")
+    return {"cleared": hr_log.clear()}
+
+
 @app.get("/api/hr/export")
 def hr_export(hours: int = 168, format: str = "csv") -> Response:
     """One row per run, as CSV or JSON. Gmail runs carry counts only."""
