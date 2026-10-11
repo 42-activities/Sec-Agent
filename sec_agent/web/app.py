@@ -718,7 +718,8 @@ def hr_run(req: HRRunRequest, sa_gmail: str = Cookie(default="")) -> StreamingRe
                 emails, audit = screening.sample_emails(req.sample), []
             for n, e in enumerate(emails, 1):
                 e["_id"] = f"email-{n}"   # stable id, kept even if a human excludes other emails
-            yield line({"type": "fetched", "via": "proxy" if req.protection else "direct", "emails": [
+            limit = settings.gmail_max_results if req.source == "gmail" else None
+            yield line({"type": "fetched", "via": "proxy" if req.protection else "direct", "limit": limit, "emails": [
                 {"id": f"email-{n}", "subject": e.get("subject", ""), "from": e.get("from", ""), "date": e.get("date", ""),
                  "candidate": screening.candidate_name(e), "preview": e.get("body", "")}
                 for n, e in enumerate(emails, 1)]})

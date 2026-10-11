@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     google_client_secret: str = ""
     # Public base URL, for the OAuth redirect (https://<host>/auth/google/callback).
     public_url: str = ""
-    gmail_max_results: int = 10      # per read_email call
+    gmail_max_results: int = 25      # per read_email call (also the Demo HR application limit)
     gmail_batch_max: int = 50        # per "load my inbox" on /batch
     # Demo HR reads ONLY this Gmail label (the synthetic CV emails), never the rest of the inbox.
     gmail_screening_label: str = "secagent-applications"

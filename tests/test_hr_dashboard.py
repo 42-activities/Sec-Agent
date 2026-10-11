@@ -153,3 +153,16 @@ def test_proxy_verifies_the_admin_password_for_controller_admin_actions(monkeypa
 
 def test_categories_have_labels():
     assert set(screening.CATEGORIES) >= {"ai_instructions", "hidden_text", "redirect", "jev"}
+
+
+def test_gmail_application_limit_is_reported(client, monkeypatch):
+    seen = {}
+
+    def fake_list(token, query, max_results, limit=None):
+        seen["n"] = max_results
+        return screening.sample_emails("poisoned")
+
+    monkeypatch.setattr(gmail, "list_messages", fake_list)
+    ev = stream(client, "/api/hr/run", protection=False, source="gmail", compromised=True)
+    fetched = next(e for e in ev if e["type"] == "fetched")
+    assert seen["n"] == settings.gmail_max_results == fetched["limit"] == 25

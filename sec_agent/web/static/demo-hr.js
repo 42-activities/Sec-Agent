@@ -222,7 +222,8 @@ function handle(pfx, ev) {
     case "start": st.session_id = st.runId = ev.session_id; st.source = ev.source; break;
     case "fetched":
       st.emails = ev.emails || [];
-      addStep(pfx, `<b>${st.emails.length}</b> application(s) loaded <span class="muted">(via ${esc(ev.via)})</span>`);
+      addStep(pfx, `<b>${st.emails.length}</b> application(s) loaded <span class="muted">(via ${esc(ev.via)})</span>` +
+        (ev.limit && st.emails.length >= ev.limit ? ` <span class="muted">— the newest ${esc(ev.limit)}; older emails under the label were not read</span>` : ""));
       renderApps(pfx, st.emails);
       break;
     case "candidates":

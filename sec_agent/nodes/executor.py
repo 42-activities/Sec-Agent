@@ -28,7 +28,7 @@ Available tools (you may only use these):
   Results already shown in your context (id candidates-db) do not need to be fetched again.
 - read_email(query, max_results): read the user's newest emails from their connected
   Gmail inbox (read-only). `query` is a Gmail search such as "from:acme newer_than:7d"
-  or "" for the newest; max_results 1-10.
+  or "" for the newest; max_results 1-25.
 
 You never execute actions yourself — you only PROPOSE one action as structured
 output. Always fill `original_goal` with the user's actual request, `source_ids`
