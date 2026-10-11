@@ -156,6 +156,31 @@ def flag_reasons(item_id: str, state: dict) -> list[str]:
     return out
 
 
+# Security-signal categories (the same wording as the "Include anyway" popup). A category
+# describes the email's content, never the applicant.
+CATEGORIES = {
+    "ai_instructions": "Instructions directed at an AI system",
+    "sensitive_data": "References to sensitive data such as credentials or keys",
+    "secrecy": "Asks to keep something hidden from the recruiter",
+    "hidden_text": "Hidden or obfuscated text detected",
+    "redirect": "Request to send data to another destination",
+    "jev": "Prompt-injection classifier (Jev) rated the content as risky",
+}
+
+
+def flag_categories(item_id: str, state: dict) -> list[str]:
+    """The category keys behind flag_reasons() — no quoted content, safe to store and count."""
+    found = (state.get("input_findings") or {}).get(item_id) or {}
+    jev = (state.get("jev_input") or {}).get(item_id) or {}
+    out = [k for k, f in (("ai_instructions", "injection"), ("sensitive_data", "sensitive"),
+                          ("secrecy", "secrecy"), ("hidden_text", "hidden")) if found.get(f)]
+    if jev.get("status") == "ok" and jev.get("suspicious"):
+        if (jev.get("signals") or {}).get("redirect", 0) >= 0.5:
+            out.append("redirect")
+        out.append("jev")
+    return out
+
+
 _SEND_TO = re.compile(r"(?:send|forward|route|deliver|cc|mail)\b[^.\n]{0,160}?([\w.+-]+@[\w-]+(?:\.[\w-]+)+)", re.IGNORECASE)
 
 

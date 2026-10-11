@@ -21,6 +21,7 @@ import secrets
 import threading
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -34,6 +35,7 @@ from .. import rules as rules_store
 from .. import events as event_log
 from .. import gmail
 from .. import screening
+from .. import hr_log
 from .. import jev
 from ..graph import build_graph
 from ..models import AgentState, ContextItem, Decision, ProposedAction, Trust
@@ -264,6 +266,7 @@ def execute(req: ExecuteRequest, sa_gmail: str = Cookie(default="")) -> Decision
     merged: AgentState = {**state, **updated}
     _SESSIONS[req.session_id] = merged
     event_log.record_execution(req.session_id, merged, req.approve)
+    hr_log.on_execute(req.session_id, req.approve, merged.get("execution_result") is not None)
     return _view(req.session_id, merged)
 
 
@@ -482,6 +485,43 @@ def soc_page() -> FileResponse:
     return FileResponse(_STATIC / "soc.html")
 
 
+@app.get("/hr-dashboard")
+def hr_dashboard_page() -> FileResponse:
+    return FileResponse(_STATIC / "hr-dashboard.html")
+
+
+@app.get("/api/hr/summary")
+def hr_summary(hours: int = 168) -> dict:
+    """Totals and the latest runs for the HR review dashboard (hours <= 0: all time)."""
+    return hr_log.summary(hours, _HR_PENDING.keys())
+
+
+@app.get("/api/hr/runs/{run_id}")
+def hr_run_detail(run_id: str) -> dict:
+    rec = hr_log.get(run_id, _HR_PENDING.keys())
+    if rec is None:
+        raise HTTPException(status_code=404, detail="unknown run")
+    return rec
+
+
+@app.get("/api/hr/export")
+def hr_export(hours: int = 168, format: str = "csv") -> Response:
+    """One row per run, as CSV or JSON. Gmail runs carry counts only."""
+    rows = hr_log.export_rows(hours, _HR_PENDING.keys())
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
+    if format == "json":
+        return Response(json.dumps(rows, indent=1), media_type="application/json",
+                        headers={"Content-Disposition": f'attachment; filename="hr-runs-{stamp}.json"'})
+    import csv
+    import io
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=hr_log.EXPORT_COLUMNS)
+    w.writeheader()
+    w.writerows(rows)
+    return Response(buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="hr-runs-{stamp}.csv"'})
+
+
 # ------------------------------------ Demo HR -------------------------------------
 # CV screening from email, run with Sec-Agent protection ON or OFF (see screening.py).
 
@@ -516,8 +556,30 @@ def _hr_tool(tool: str, args: dict, goal: str, protection: bool,
 _HR_PENDING: dict[str, dict] = {}
 
 
+def _hr_finish(rec: dict, merged: AgentState) -> None:
+    """Record the agent's proposal and the decision on the HR dashboard."""
+    act, fd, sec = merged.get("proposed_action"), merged.get("final_decision"), merged.get("security_decision")
+    reasons = merged.get("policy_reasons", [])
+    if act is not None:
+        rec["action"] = _hr_action(act)
+    rec["final_decision"] = fd.value if fd else None
+    rec["attack_type"] = event_log.classify(reasons, sec.classification if sec else "",
+                                            bool(sec and sec.decision == Decision.DENY), rec.get("flagged", 0) > 0)
+    rec["top_reason"] = reasons[0] if reasons else None
+    rec["decided_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    rec["executed"] = False if rec["final_decision"] == "DENY" else None
+    rec["status"] = "done"
+    hr_log.save(rec)
+
+
+def _hr_action(act: ProposedAction) -> dict:
+    to = act.arguments.get("recipient") or act.arguments.get("url") or ""
+    internal = to.rsplit("@", 1)[-1].lower() in settings.allowed_email_domains if "@" in to else None
+    return {"tool": act.tool, "recipient": to or None, "internal": internal}
+
+
 def _hr_decide(line, session_id: str, merged: AgentState, emails: list[dict], candidates: list[dict],
-               goal: str, compromised: bool, source: str):
+               goal: str, compromised: bool, source: str, rec: dict):
     """After screening (and any human review): agent -> security LLM -> policy, streamed."""
     if compromised:
         act = (screening.scripted_attack(goal, emails, candidates)
@@ -542,6 +604,8 @@ def _hr_decide(line, session_id: str, merged: AgentState, emails: list[dict], ca
     _SESSIONS[session_id] = merged
     if source == "sample":  # synthetic data only in the public SOC log
         event_log.record_analysis(session_id, merged, compromised=compromised)
+        rec["soc"] = True
+    _hr_finish(rec, merged)
     fd = merged.get("final_decision")
     yield line({"type": "done", "session_id": session_id, "final_decision": fd.value if fd else None,
                 "audit": merged.get("audit", [])})
@@ -577,6 +641,16 @@ def hr_continue(req: HRContinueRequest) -> StreamingResponse:
         else:
             audit.append(who + verdict + (f" after {secs:.1f} s" if secs is not None else ""))
     merged["audit"] = audit
+    rec = pending["rec"]
+    ids = [e["_id"] for e in pending["emails"]]
+    rec["review"] = {"excluded": sum(1 for i in ids if i not in keep),
+                     "included_anyway": sum(1 for i in ids if i in flagged and i in keep),
+                     "acknowledged": sum(1 for i in ids if i in flagged and i in keep and i in req.acknowledged),
+                     "seconds": [round(req.seconds[i], 1) for i in ids if i in flagged and i in req.seconds]}
+    for a in rec["apps"]:
+        a["outcome"] = ("included anyway" if a["id"] in flagged else "kept") if a["id"] in keep else "excluded"
+        a["seconds"] = req.seconds.get(a["id"]) if a["id"] in flagged else None
+    rec["status"] = "running"
     merged["context_items"] = [i for i in merged.get("context_items", [])
                                if not i.id.startswith("email-") or i.id in keep]
     emails = [e for e in pending["emails"] if e["_id"] in keep]
@@ -588,13 +662,17 @@ def hr_continue(req: HRContinueRequest) -> StreamingResponse:
         yield line({"type": "reviewed", "kept": [e["_id"] for e in emails],
                     "excluded": [e["_id"] for e in pending["emails"] if e["_id"] not in keep]})
         if not emails:
+            rec.update(final_decision="NONE", status="done")
+            hr_log.save(rec)
             yield line({"type": "done", "session_id": None, "final_decision": "NONE",
                         "audit": audit + ["[human] every application excluded — nothing to screen"]})
             return
         try:
             yield from _hr_decide(line, req.session_id, merged, emails, pending["candidates"],
-                                  pending["goal"], pending["compromised"], pending["source"])
+                                  pending["goal"], pending["compromised"], pending["source"], rec)
         except Exception as exc:
+            rec["status"] = "error"
+            hr_log.save(rec)
             yield line({"type": "error", "detail": f"{type(exc).__name__}: {exc}"[:400]})
 
     return StreamingResponse(stream(), media_type="application/x-ndjson",
@@ -612,6 +690,9 @@ def hr_run(req: HRRunRequest, sa_gmail: str = Cookie(default="")) -> StreamingRe
 
     def line(event: dict) -> str:
         return json.dumps(event, default=str) + "\n"
+
+    rec = hr_log.new_run(session_id, protection=req.protection, source=req.source, scenario=req.sample,
+                         compromised=req.compromised)
 
     def stream():
         yield line({"type": "start", "session_id": session_id, "protection": req.protection, "source": req.source,
@@ -631,7 +712,12 @@ def hr_run(req: HRRunRequest, sa_gmail: str = Cookie(default="")) -> StreamingRe
                 {"id": f"email-{n}", "subject": e.get("subject", ""), "from": e.get("from", ""), "date": e.get("date", ""),
                  "candidate": screening.candidate_name(e), "preview": e.get("body", "")}
                 for n, e in enumerate(emails, 1)]})
+            rec["applications"] = len(emails)
+            rec["apps"] = [{"id": e["_id"], "candidate": screening.candidate_name(e), "status": "pending",
+                            "categories": [], "outcome": None, "seconds": None} for e in emails]
             if not emails:
+                rec["status"] = "empty"
+                hr_log.save(rec)
                 yield line({"type": "error", "detail": f"No emails under the Gmail label '{settings.gmail_screening_label}'."})
                 return
             # 2. the existing candidates
@@ -645,6 +731,8 @@ def hr_run(req: HRRunRequest, sa_gmail: str = Cookie(default="")) -> StreamingRe
             if req.compromised and not req.protection:
                 act = screening.scripted_attack(goal, emails, candidates)
                 if act is None:
+                    rec["status"] = "error"
+                    hr_log.save(rec)
                     yield line({"type": "error", "detail": "No email here instructs the agent to send data anywhere — "
                                                            "nothing for a compromised agent to follow. Untick 'compromised'."})
                     return
@@ -662,17 +750,30 @@ def hr_run(req: HRRunRequest, sa_gmail: str = Cookie(default="")) -> StreamingRe
                             for e in emails]
                 yield line({"type": "screened", "emails": screened})
                 flagged = [x["id"] for x in screened if x["flagged"]]
+                rec["flagged"], rec["clean"] = len(flagged), len(emails) - len(flagged)
+                for a in rec["apps"]:
+                    a["status"] = "flagged" if a["id"] in flagged else "clean"
+                    a["categories"] = screening.flag_categories(a["id"], merged) if a["id"] in flagged else []
+                    for c in a["categories"]:
+                        rec["categories"][c] = rec["categories"].get(c, 0) + 1
+                    a["outcome"] = None if a["id"] in flagged and req.review else "kept"
                 if flagged and req.review:
+                    rec["status"] = "review"
+                    hr_log.save(rec)
                     _HR_PENDING[session_id] = {"state": merged, "emails": emails, "candidates": candidates,
-                                               "goal": goal, "compromised": req.compromised, "source": req.source}
+                                               "goal": goal, "compromised": req.compromised, "source": req.source,
+                                               "rec": rec}
                     yield line({"type": "review", "session_id": session_id, "flagged": flagged})
                     yield line({"type": "done", "session_id": session_id, "final_decision": "REVIEW",
                                 "audit": merged.get("audit", [])})
                     return
                 yield from _hr_decide(line, session_id, merged, emails, candidates, goal,
-                                      req.compromised, req.source)
+                                      req.compromised, req.source, rec)
             else:
                 yield line({"type": "screened", "unchecked": True})
+                rec["unchecked"] = len(emails)
+                for a in rec["apps"]:
+                    a["status"], a["outcome"] = "unchecked", "kept"
                 if not req.compromised:
                     from ..nodes.executor import executor_node
                     state.update(executor_node(state))
@@ -683,9 +784,14 @@ def hr_run(req: HRRunRequest, sa_gmail: str = Cookie(default="")) -> StreamingRe
                 else:
                     result, ok = tool_invoke(act.tool, act.arguments), True
                 yield line({"type": "executed", "ok": ok, "tool": act.tool, "arguments": act.arguments, "result": result})
+                rec.update(action=_hr_action(act), final_decision="EXECUTED" if ok else "NONE",
+                           executed=ok, status="done")
+                hr_log.save(rec)
                 yield line({"type": "done", "session_id": None, "final_decision": "EXECUTED" if ok else None,
                             "audit": state.get("audit", [])})
         except Exception as exc:  # surface tool/model errors to the page
+            rec["status"] = "error"
+            hr_log.save(rec)
             yield line({"type": "error", "detail": f"{type(exc).__name__}: {exc}"[:400]})
 
     return StreamingResponse(stream(), media_type="application/x-ndjson",

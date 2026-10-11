@@ -219,7 +219,7 @@ async function continueReview(pfx, btn) {
 function handle(pfx, ev) {
   const st = runState[pfx]; if (!st) return;
   switch (ev.type) {
-    case "start": st.session_id = ev.session_id; break;
+    case "start": st.session_id = st.runId = ev.session_id; break;
     case "fetched":
       st.emails = ev.emails || [];
       addStep(pfx, `<b>${st.emails.length}</b> application(s) loaded <span class="muted">(via ${esc(ev.via)})</span>`);
@@ -279,6 +279,10 @@ function handle(pfx, ev) {
     }
     case "done":
       if (ev.session_id) st.session_id = ev.session_id;
+      if (st.runId && !st.linked) {
+        st.linked = true;
+        addStep(pfx, `<a href="/hr-dashboard?run=${encodeURIComponent(st.runId)}">View this run on the HR runs dashboard →</a>`);
+      }
       setSub(pfx, ev.final_decision ? String(ev.final_decision).toLowerCase() : "done");
       break;
     case "error":
